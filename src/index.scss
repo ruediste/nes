@@ -1,0 +1,27 @@
+// Include any default variable overrides here (though functions won't be available)
+
+@import "../node_modules/bootstrap/scss/bootstrap";
+
+.editor {
+    counter-reset: line;
+    border: 1px solid #ced4da;
+  }
+  
+  .editor #codeArea {
+    outline: none;
+    padding-left: 60px !important;
+  }
+  
+  .editor pre {
+    padding-left: 60px !important;
+  }
+  
+  .editor .editorLineNumber {
+    position: absolute;
+    left: 0px;
+    color: #cccccc;
+    text-align: right;
+    width: 40px;
+    font-weight: 100;
+  }
+  

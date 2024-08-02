@@ -1,4 +1,4 @@
-class CompileError {
+export class CompileError {
   constructor(
     private input: string,
     public pos: InputPos,
@@ -11,14 +11,9 @@ class CompileError {
       this.pos.lineStartPos,
       lineEndIndex < 0 ? undefined : lineEndIndex
     );
-    return (
-      this.errorMessage +
-      "\n" +
-      line +
-      "\n" +
-      " ".repeat(this.pos.pos - this.pos.lineStartPos) +
-      "^"
-    );
+    return `${this.pos.lineNr}(${this.pos.linePos}): ${this.errorMessage}
+${line}
+${" ".repeat(this.pos.pos - this.pos.lineStartPos)}^`;
   }
   toString() {
     return this.message;
@@ -162,16 +157,22 @@ export class Parser {
     return undefined;
   }
 
-  public choice<T>(noMatchMessage: string, ...choices: (() => T)[]): T {
+  public choice<T>(...choices: (() => T)[]): T {
+    let error: CompileError | undefined;
     for (const choice of choices) {
       const mark = this.mark();
       try {
         return choice();
       } catch (e) {
+        if (e instanceof CompileError) {
+          if (!error || error.pos.pos < e.pos.pos) {
+            error = e;
+          }
+        }
         this.reset(mark);
       }
     }
-    throw this.error(noMatchMessage);
+    throw error ?? this.error("No choices matched");
   }
 
   public oneOrMore<T>(f: () => T): T[] {
@@ -179,26 +180,26 @@ export class Parser {
   }
 }
 
-type AstSymbol = { name: string; pos: InputPos };
-type AstValue = number | AstSymbol;
+export type AstSymbol = { type: "symbol"; name: string; pos: InputPos };
+type AstValue = { type: "number"; value: number } | AstSymbol;
 interface AstBinaryOp {
   type: "binaryOp";
   left: AstExpression;
   right: AstExpression;
   operator: "+" | "-" | "*" | "/";
 }
-type AstExpression = AstBinaryOp | AstValue;
+export type AstExpression = AstBinaryOp | AstValue;
 export interface AstCall {
   type: "call";
   name: AstSymbol;
   arguments: { parameterName: AstSymbol; argumentValue: AstExpression }[];
 }
-interface AstEquationTerminal {
+export interface AstEquationTerminal {
   type: "equationTerminal";
   left: AstExpression;
   right: AstExpression;
 }
-type AstEquation = AstCall | AstEquationTerminal;
+export type AstEquation = AstCall | AstEquationTerminal;
 interface AstDefinition {
   name: string;
   parameters: string[];
@@ -220,7 +221,6 @@ export class Grammar {
   whitespace() {
     this.parser.oneOrMore(() => {
       this.parser.choice(
-        "Expected whitespace",
         () => {
           this.parser.consume("\r");
           this.parser.consume("\n");
@@ -239,6 +239,7 @@ export class Grammar {
   symbol(): AstSymbol {
     try {
       return {
+        type: "symbol",
         pos: this.parser.pos,
         name:
           this.parser.consume("a-zA-Z_") +
@@ -263,8 +264,7 @@ export class Grammar {
 
   value(): AstValue {
     const result = this.parser.choice<AstValue>(
-      "Expected value",
-      () => this.number(),
+      () => ({ type: "number", value: this.number() }),
       () => this.symbol()
     );
     return result;
@@ -314,7 +314,6 @@ export class Grammar {
   }
   equation(): AstEquation {
     return this.parser.choice<AstEquation>(
-      "Expected Equation",
       () => this.equationTerminal(),
       () => this.call()
     );
@@ -360,6 +359,7 @@ export class Grammar {
   callArgument() {
     const parameterName = this.symbol();
     this.parser.consume(":");
+    this.whitespaceOpt();
     const argumentValue = this.expression();
     return { parameterName, argumentValue };
   }
@@ -396,15 +396,23 @@ export class Grammar {
       definitions: [],
     };
 
-    this.parser.zeroOrMore(() =>
-      this.parser.choice(
-        "Expected equation or definition",
-        () => system.definitions.push(this.definition()),
-        () => system.equations.push(this.equation())
-      )
-    );
+    let lastError: CompileError | undefined;
+    try {
+      while (true) {
+        this.parser.choice(
+          () => system.definitions.push(this.definition()),
+          () => system.equations.push(this.equation())
+        );
+      }
+    } catch (e) {
+      if (e instanceof CompileError) {
+        lastError = e;
+      } else {
+        throw e;
+      }
+    }
     if (!this.parser.isEOI) {
-      throw this.parser.error("Expected Equation or Definition");
+      throw lastError ?? this.parser.error("Expected Equation or Definition");
     }
     return system;
   }

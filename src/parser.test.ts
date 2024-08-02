@@ -42,16 +42,19 @@ test("parse equation", () => {
     left: {
       type: "binaryOp",
       left: {
+        type: "symbol",
         name: "a",
         pos: { lineNr: 1, linePos: 1, lineStartPos: 0, pos: 0 },
       },
       operator: "*",
       right: {
+        type: "symbol",
         name: "b",
         pos: { lineNr: 1, linePos: 4, lineStartPos: 0, pos: 3 },
       },
     },
     right: {
+      type: "symbol",
       name: "c",
       pos: { lineNr: 1, linePos: 6, lineStartPos: 0, pos: 5 },
     },

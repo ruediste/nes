@@ -1,14 +1,16 @@
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { NumberInput, StringInput } from "./Input";
 import { SortableList } from "./sortableList/SortableList";
 
 import { checkType, debounce } from "./utils";
 
-import Prism, { Grammar, highlight } from "prismjs";
+import Prism, { highlight } from "prismjs";
 import "prismjs/components/prism-clike";
 import "prismjs/components/prism-javascript";
 import "prismjs/themes/prism.css";
 import Editor from "react-simple-code-editor";
+import { calculate } from "./calculation";
+import { CompileError, Grammar } from "./parser";
 
 const siPrefixes = [
   { prefix: "T", factor: 1e12 },
@@ -29,10 +31,11 @@ const siPrefixMap: { [key in SiPrefix]: number } = Object.fromEntries(
   siPrefixes.map((x) => [x.prefix, x.factor])
 ) as any;
 
-interface VariableDefinition {
+export interface VariableDefinition {
   locked: boolean;
   id: number;
   name: string;
+  description: string;
   siPrefix: SiPrefix;
   unit: string;
   value: number;
@@ -44,9 +47,9 @@ interface ProjectSerialized {
   nextId: number;
 }
 
-interface ProjectData extends ProjectSerialized {}
+export interface ProjectData extends ProjectSerialized {}
 
-class Project {
+export class Project {
   constructor(public data: ProjectData) {}
   static fromSerialized(data: ProjectSerialized) {
     return new Project({
@@ -100,6 +103,19 @@ function App() {
     debouncedSave(project);
   }, [project]);
 
+  const performCalculation = useCallback(() => {
+    try {
+      const system = new Grammar(project.data.sourceCode).system();
+      calculate(project, (fn) => setProject((p) => p.update(fn(p))));
+    } catch (e) {
+      if (e instanceof CompileError) {
+        console.log(e.message);
+      } else if (e instanceof Array) {
+        e.forEach((e) => console.log(e.message));
+      } else throw e;
+    }
+  }, [project]);
+
   return (
     <div>
       <SortableList
@@ -135,7 +151,13 @@ function App() {
                 >
                   <StringInput
                     value={variable.name}
+                    placeholder="Name"
                     onChange={(name) => update({ name })}
+                  />
+                  <StringInput
+                    value={variable.description}
+                    placeholder="Description"
+                    onChange={(description) => update({ description })}
                   />
                   <NumberInput
                     className="w-auto"
@@ -160,6 +182,12 @@ function App() {
                       </option>
                     ))}
                   </select>
+                  <StringInput
+                    style={{ width: "75px" }}
+                    value={variable.unit}
+                    placeholder="Unit"
+                    onChange={(unit) => update({ unit })}
+                  />
                   <div className="form-check form-switch">
                     <input
                       className="form-check-input"
@@ -185,7 +213,7 @@ function App() {
       ></SortableList>
       <button
         type="button"
-        className="btn btn-primary"
+        className="btn btn-secondary"
         onClick={() =>
           setProject((p) =>
             p.update({
@@ -195,6 +223,7 @@ function App() {
                 {
                   id: p.data.nextId,
                   name: "new",
+                  description: "",
                   siPrefix: "",
                   unit: "",
                   value: 0,
@@ -225,11 +254,20 @@ function App() {
           outline: 0,
         }}
       />
+
+      <button
+        type="button"
+        className="btn btn-primary"
+        onClick={performCalculation}
+        style={{ marginTop: "16px" }}
+      >
+        Calculate
+      </button>
     </div>
   );
 }
 
-const highlightWithLineNumbers = (input: string, language: Grammar) =>
+const highlightWithLineNumbers = (input: string, language: Prism.Grammar) =>
   highlight(input, language, "javascript")
     .split("\n")
     .map((line, i) => `<span class='editorLineNumber'>${i + 1}</span>${line}`)

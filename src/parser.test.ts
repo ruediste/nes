@@ -71,14 +71,21 @@ test("call", () => {
 });
 
 test("simple input", () => {
-  const system = new Grammar(
-    `
+  new Grammar(`
 f=1/T;
-
-
 def cap(I,t, C, dU) {
   I*t = C*dU;
-}
-`
-  ).system();
+}`).system();
+});
+
+test("variable declaration", () => {
+  const decl = new Grammar("var f=10 kHz; // Frequency").variableDeclaration();
+  expect(decl.name.name).toBe("f");
+  expect(decl.siPrefix).toBe("k");
+  expect(decl.valueStart.pos).toBe(6);
+  expect(decl.valueLength).toBe(2);
+});
+
+test("comment", () => {
+  new Grammar("var f=10 kHz; // Frequency").system();
 });

@@ -12,7 +12,7 @@ import Editor from "react-simple-code-editor";
 import { calculate } from "./calculation";
 import { CompileError, Grammar } from "./parser";
 
-const siPrefixes = [
+export const siPrefixes = [
   { prefix: "T", factor: 1e12 },
   { prefix: "G", factor: 1e9 },
   { prefix: "M", factor: 1e6 },
@@ -25,9 +25,9 @@ const siPrefixes = [
   { prefix: "p", factor: 1e-12 },
 ] as const;
 
-type SiPrefix = (typeof siPrefixes)[number]["prefix"];
+export type SiPrefix = (typeof siPrefixes)[number]["prefix"];
 
-const siPrefixMap: { [key in SiPrefix]: number } = Object.fromEntries(
+export const siPrefixMap: { [key in SiPrefix]: number } = Object.fromEntries(
   siPrefixes.map((x) => [x.prefix, x.factor])
 ) as any;
 
@@ -43,7 +43,7 @@ export interface VariableDefinition {
 
 interface ProjectSerialized {
   sourceCode: string;
-  variables: VariableDefinition[];
+  variables: VariableDefinition[][];
   nextId: number;
 }
 
@@ -63,8 +63,18 @@ export class Project {
 
   public updateVariable(id: number, update: Partial<VariableDefinition>) {
     return this.update({
-      variables: this.data.variables.map((v) =>
-        v.id === id ? { ...v, ...update } : v
+      variables: this.data.variables.map((vlist) =>
+        vlist.map((v) => (v.id === id ? { ...v, ...update } : v))
+      ),
+    });
+  }
+  public updateVariableGroup(
+    groupIndex: number,
+    fn: (group: VariableDefinition[]) => VariableDefinition[]
+  ) {
+    return this.update({
+      variables: this.data.variables.map((group, idx) =>
+        idx === groupIndex ? fn(group) : group
       ),
     });
   }
@@ -92,7 +102,7 @@ function App() {
     } else {
       return Project.fromSerialized({
         sourceCode: "",
-        variables: [],
+        variables: [[], []],
         nextId: 1,
       });
     }
@@ -118,125 +128,151 @@ function App() {
 
   return (
     <div>
-      <SortableList
-        items={project.data.variables}
-        onChange={(newVariables) =>
-          setProject((p) => p.update({ variables: newVariables }))
-        }
-        renderContainer={(children) => (
-          <div className="list-group">{children}</div>
-        )}
-        renderItem={(variable, isDragPlaceholder) => {
-          function update(data: Partial<VariableDefinition>) {
-            setProject((p) => p.updateVariable(variable.id, data));
+      <div style={{ display: "flex", flexDirection: "row" }}>
+        <SortableList
+          items={project.data.variables}
+          onChange={(newVariables) =>
+            setProject((p) => p.update({ variables: newVariables }))
           }
-          return (
-            <SortableList.Item id={variable.id}>
-              {(setNodeRef, style) => (
-                <li
-                  className="list-group-item"
-                  ref={setNodeRef}
-                  style={{
-                    ...style,
-                    display: "flex",
-                    flexDirection: "row",
-                    ...(isDragPlaceholder
-                      ? {
-                          backgroundColor: "white",
-                          border: "solid black 1px",
-                          borderRadius: "5px",
-                        }
-                      : {}),
-                  }}
+          renderContainer={(children, groupIndex) => (
+            <div
+              style={{
+                flexGrow: 1,
+              }}
+            >
+              <div className="list-group" style={{ minHeight: "40px" }}>
+                {children}
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() =>
+                  setProject((p) =>
+                    p
+                      .updateVariableGroup(groupIndex, (g) => [
+                        ...g,
+                        {
+                          id: p.data.nextId,
+                          name: "new",
+                          description: "",
+                          siPrefix: "",
+                          unit: "",
+                          value: 0,
+                          locked: false,
+                        },
+                      ])
+                      .update({ nextId: p.data.nextId + 1 })
+                  )
+                }
+                style={{}}
+              >
+                Add
+              </button>
+            </div>
+          )}
+          renderItem={({
+            item: variable,
+            isDragPlaceholder,
+            setNodeRef,
+            style,
+            groupIndex,
+          }) => {
+            function update(data: Partial<VariableDefinition>) {
+              setProject((p) => p.updateVariable(variable.id, data));
+            }
+            return (
+              <li
+                className="list-group-item"
+                ref={setNodeRef}
+                style={{
+                  ...style,
+                  display: "flex",
+                  flexDirection: "row",
+                  ...(isDragPlaceholder
+                    ? {
+                        backgroundColor: "white",
+                        border: "solid black 1px",
+                        borderRadius: "5px",
+                      }
+                    : {}),
+                }}
+              >
+                <SortableList.DragHandle />
+                <StringInput
+                  value={variable.name}
+                  placeholder="Name"
+                  onChange={(name) => update({ name })}
+                />
+                <StringInput
+                  value={variable.description}
+                  placeholder="Description"
+                  onChange={(description) => update({ description })}
+                />
+                <NumberInput
+                  className="w-auto"
+                  value={variable.value / siPrefixMap[variable.siPrefix]}
+                  onChange={(value) =>
+                    update({
+                      value: value * siPrefixMap[variable.siPrefix],
+                    })
+                  }
+                />
+                <select
+                  className="form-select"
+                  style={{ width: "75px" }}
+                  value={variable.siPrefix}
+                  onChange={(e) =>
+                    update({ siPrefix: e.target.value as SiPrefix })
+                  }
                 >
-                  <StringInput
-                    value={variable.name}
-                    placeholder="Name"
-                    onChange={(name) => update({ name })}
+                  {siPrefixes.map((prefix) => (
+                    <option key={prefix.prefix} value={prefix.prefix}>
+                      {prefix.prefix}
+                    </option>
+                  ))}
+                </select>
+                <StringInput
+                  style={{ width: "75px" }}
+                  value={variable.unit}
+                  placeholder="Unit"
+                  onChange={(unit) => update({ unit })}
+                />
+                <div className="form-check form-switch">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    role="switch"
+                    id={`${id}-${variable.id}-locked`}
+                    checked={variable.locked}
+                    onChange={(e) => update({ locked: e.target.checked })}
                   />
-                  <StringInput
-                    value={variable.description}
-                    placeholder="Description"
-                    onChange={(description) => update({ description })}
-                  />
-                  <NumberInput
-                    className="w-auto"
-                    value={variable.value / siPrefixMap[variable.siPrefix]}
-                    onChange={(value) =>
-                      update({
-                        value: value * siPrefixMap[variable.siPrefix],
-                      })
-                    }
-                  />
-                  <select
-                    className="form-select"
-                    style={{ width: "75px" }}
-                    value={variable.siPrefix}
-                    onChange={(e) =>
-                      update({ siPrefix: e.target.value as SiPrefix })
-                    }
+                  <label
+                    className="form-check-label"
+                    htmlFor={`${id}-${variable.id}-locked`}
                   >
-                    {siPrefixes.map((prefix) => (
-                      <option key={prefix.prefix} value={prefix.prefix}>
-                        {prefix.prefix}
-                      </option>
-                    ))}
-                  </select>
-                  <StringInput
-                    style={{ width: "75px" }}
-                    value={variable.unit}
-                    placeholder="Unit"
-                    onChange={(unit) => update({ unit })}
-                  />
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      role="switch"
-                      id={`${id}-${variable.id}-locked`}
-                      checked={variable.locked}
-                      onChange={(e) => update({ locked: e.target.checked })}
-                    />
-                    <label
-                      className="form-check-label"
-                      htmlFor={`${id}-${variable.id}-locked`}
-                    >
-                      Locked
-                    </label>
-                  </div>
-                  <SortableList.DragHandle />
-                </li>
-              )}
-            </SortableList.Item>
-          );
-        }}
-      ></SortableList>
-      <button
-        type="button"
-        className="btn btn-secondary"
-        onClick={() =>
-          setProject((p) =>
-            p.update({
-              nextId: p.data.nextId + 1,
-              variables: [
-                ...p.data.variables,
-                {
-                  id: p.data.nextId,
-                  name: "new",
-                  description: "",
-                  siPrefix: "",
-                  unit: "",
-                  value: 0,
-                  locked: false,
-                },
-              ],
-            })
-          )
-        }
-        style={{ marginTop: "16px" }}
-      >
-        Add
-      </button>
+                    Locked
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ marginLeft: "8px" }}
+                  onClick={() =>
+                    setProject((p) =>
+                      p.updateVariableGroup(groupIndex, (g) =>
+                        g.filter((x) => x.id !== variable.id)
+                      )
+                    )
+                  }
+                >
+                  Delete
+                </button>
+              </li>
+            );
+          }}
+        ></SortableList>
+      </div>
       <Editor
         value={project.data.sourceCode}
         onValueChange={(code) =>

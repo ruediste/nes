@@ -24,8 +24,10 @@ const SortableItemContext = createContext<Context>({
 export function SortableItem({
   id,
   children,
+  data,
 }: {
   id: UniqueIdentifier;
+  data: any;
   children: (
     setNodeRef: (node: HTMLElement | null) => void,
     style: CSSProperties
@@ -39,7 +41,7 @@ export function SortableItem({
     setActivatorNodeRef,
     transform,
     transition,
-  } = useSortable({ id });
+  } = useSortable({ id, data });
   const context = useMemo(
     () => ({
       attributes,

@@ -1,5 +1,5 @@
 import Matrix, { solve } from "ml-matrix";
-import { Project, ProjectData, VariableDefinition } from "./App";
+import { Project, ProjectData, siPrefixMap } from "./App";
 import {
   AstEquation,
   AstExpression,
@@ -56,14 +56,52 @@ export function calculate(
 
   const errors: CompileError[] = [];
   // build variables
-  const unknownCount = data.variables.filter((v) => !v.locked).length;
+  const unknownCount =
+    data.variables.flatMap((x) => x).filter((v) => !v.locked).length +
+    system.variables.filter((x) => !x.locked).length;
   let unknownIndex = 0;
-  const unknowns: { value: CalculationValue; variable: VariableDefinition }[] =
-    [];
+  const unknowns: { value: CalculationValue }[] = [];
   const variables: VariableMap = {};
-  for (const variable of data.variables) {
+  for (const variable of data.variables.flatMap((x) => x)) {
+    if (variable.name in variables) {
+      errors.push(
+        new CompileError(
+          data.sourceCode,
+          { lineNr: 1, linePos: 1, lineStartPos: 0, pos: 0 },
+          "Duplicate variable " + variable.name
+        )
+      );
+      continue;
+    }
+    const value = variable.value * siPrefixMap[variable.siPrefix];
     if (variable.locked) {
       variables[variable.name] = new CalculationValue(
+        value,
+        createRange(unknownCount, () => 0)
+      );
+    } else {
+      const v = new CalculationValue(
+        value,
+        createRange(unknownCount, (idx) => (idx == unknownIndex ? 1 : 0))
+      );
+      variables[variable.name] = v;
+      unknowns.push({ value: v });
+      unknownIndex++;
+    }
+  }
+  for (const variable of system.variables) {
+    if (variable.name.name in variables) {
+      errors.push(
+        new CompileError(
+          data.sourceCode,
+          variable.name.pos,
+          "Duplicate variable " + variable.name.name
+        )
+      );
+      continue;
+    }
+    if (variable.locked) {
+      variables[variable.name.name] = new CalculationValue(
         variable.value,
         createRange(unknownCount, () => 0)
       );
@@ -72,8 +110,8 @@ export function calculate(
         variable.value,
         createRange(unknownCount, (idx) => (idx == unknownIndex ? 1 : 0))
       );
-      variables[variable.name] = value;
-      unknowns.push({ value, variable });
+      variables[variable.name.name] = value;
+      unknowns.push({ value });
       unknownIndex++;
     }
   }
@@ -215,15 +253,30 @@ export function calculate(
     // calculate the error and break loop if applicable
     const e = B.norm();
 
-    if (e < 1e-20) {
+    if (e < 1e-15) {
       console.log("Solution found");
       // apply the solution
-      updateProject((p) => ({
-        variables: p.data.variables.map((v) => ({
-          ...v,
-          value: variables[v.name].value,
-        })),
-      }));
+      updateProject((p) => {
+        let src = p.data.sourceCode;
+        [...system.variables]
+          .reverse()
+          .filter((x) => !x.locked)
+          .forEach((v) => {
+            src =
+              src.substring(0, v.valueStart.pos) +
+              variables[v.name.name].value / siPrefixMap[v.siPrefix] +
+              src.substring(v.valueStart.pos + v.valueLength);
+          });
+        return {
+          sourceCode: src,
+          variables: p.data.variables.map((group) =>
+            group.map((v) => ({
+              ...v,
+              value: v.locked ? v.value : variables[v.name].value,
+            }))
+          ),
+        };
+      });
       break;
     }
 

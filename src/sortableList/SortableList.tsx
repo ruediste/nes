@@ -11,8 +11,8 @@ import {
   arrayMove,
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
-import type { ReactNode } from "react";
-import React, { useMemo, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useMemo, useState } from "react";
 
 import { DragHandle, SortableItem } from "./SortableItem";
 import { SortableOverlay } from "./SortableOverlay";
@@ -22,12 +22,22 @@ interface BaseItem {
 }
 
 interface Props<T extends BaseItem> {
-  items: T[];
-  onChange(items: T[]): void;
-  renderItem(item: T, isDragPlaceholder: boolean): ReactNode;
-  renderContainer(children: ReactNode): JSX.Element;
+  items: T[][];
+  onChange(items: T[][]): void;
+  renderItem(args: {
+    item: T;
+    groupIndex: number;
+    isDragPlaceholder: boolean;
+    setNodeRef: (node: HTMLElement | null) => void;
+    style: CSSProperties;
+  }): JSX.Element;
+  renderContainer(children: ReactNode, groupIndex: number): JSX.Element;
 }
 
+interface Data {
+  groupIdx: number;
+  itemIdx: number;
+}
 export function SortableList<T extends BaseItem>({
   items,
   onChange,
@@ -36,7 +46,12 @@ export function SortableList<T extends BaseItem>({
 }: Props<T>) {
   const [active, setActive] = useState<Active | null>(null);
   const activeItem = useMemo(
-    () => items.find((item) => item.id === active?.id),
+    () =>
+      items
+        .flatMap((v, groupIdx) =>
+          v.map((x, itemIdx) => [groupIdx, itemIdx, x] as const)
+        )
+        .find((item) => item[2].id === active?.id),
     [active, items]
   );
   const sensors = useSensors(
@@ -54,28 +69,81 @@ export function SortableList<T extends BaseItem>({
       }}
       onDragEnd={({ active, over }) => {
         if (over && active.id !== over?.id) {
-          const activeIndex = items.findIndex(({ id }) => id === active.id);
-          const overIndex = items.findIndex(({ id }) => id === over.id);
+          const activeData = active.data.current as Data;
+          const overData = over.data.current as Data;
 
-          onChange(arrayMove(items, activeIndex, overIndex));
+          if (activeData.groupIdx == overData.groupIdx) {
+            onChange(
+              items.map((group, idx) =>
+                idx == activeData.groupIdx
+                  ? arrayMove(group, activeData.itemIdx, overData.itemIdx)
+                  : group
+              )
+            );
+          } else {
+            let newItems = [...items];
+            const activeGroup = [...items[activeData.groupIdx]];
+            const movedItem = activeGroup.splice(activeData.itemIdx, 1);
+            newItems[activeData.groupIdx] = activeGroup;
+
+            const overGroup = [...items[overData.groupIdx]];
+            overGroup.splice(overData.itemIdx, 0, ...movedItem);
+            newItems[overData.groupIdx] = overGroup;
+            onChange(newItems);
+          }
         }
         setActive(null);
+      }}
+      onDragOver={({ active, over }) => {
+        const activeData = active.data.current as Data;
+        const overData = over?.data.current as Data | null;
+        console.log("onDragOver", activeData, overData);
       }}
       onDragCancel={() => {
         setActive(null);
       }}
     >
-      <SortableContext items={items}>
-        {renderContainer(
-          items.map((item) => (
-            <React.Fragment key={item.id}>
-              {renderItem(item, false)}
-            </React.Fragment>
-          ))
-        )}
-      </SortableContext>
+      {items.map((group, groupIdx) => (
+        <SortableContext key={groupIdx} items={group}>
+          {renderContainer(
+            group.map((item, itemIdx) => (
+              <SortableList.Item
+                key={item.id}
+                id={item.id}
+                data={{ groupIdx, itemIdx }}
+              >
+                {(setNodeRef, style) =>
+                  renderItem({
+                    item,
+                    groupIndex: groupIdx,
+                    isDragPlaceholder: false,
+                    setNodeRef,
+                    style,
+                  })
+                }
+              </SortableList.Item>
+            )),
+            groupIdx
+          )}
+        </SortableContext>
+      ))}
       <SortableOverlay>
-        {activeItem ? renderItem(activeItem, true) : null}
+        {activeItem ? (
+          <SortableList.Item
+            id={activeItem[2].id}
+            data={{ groupIdx: activeItem[0], itemIdx: activeItem[1] }}
+          >
+            {(setNodeRef, style) =>
+              renderItem({
+                item: activeItem[2],
+                groupIndex: activeItem[0],
+                isDragPlaceholder: true,
+                setNodeRef,
+                style,
+              })
+            }
+          </SortableList.Item>
+        ) : null}
       </SortableOverlay>
     </DndContext>
   );

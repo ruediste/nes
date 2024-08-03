@@ -1,3 +1,5 @@
+import { SiPrefix, siPrefixes } from "./App";
+
 export class CompileError {
   constructor(
     private input: string,
@@ -206,9 +208,19 @@ interface AstDefinition {
   equations: AstEquation[];
 }
 
+interface AstVariableDeclaration {
+  name: AstSymbol;
+  value: number;
+  valueStart: InputPos;
+  valueLength: number;
+  siPrefix: SiPrefix;
+  locked: boolean;
+}
+
 interface AstSystem {
   equations: AstEquation[];
   definitions: AstDefinition[];
+  variables: AstVariableDeclaration[];
 }
 
 export class Grammar {
@@ -222,8 +234,13 @@ export class Grammar {
     this.parser.oneOrMore(() => {
       this.parser.choice(
         () => {
-          this.parser.consume("\r");
-          this.parser.consume("\n");
+          this.parser.consumeString("//");
+          this.parser.zeroOrMore(() => this.parser.consume("^\n"));
+          if (!this.parser.isEOI) this.parser.consume("\n");
+        },
+        () => {
+          this.parser.consumeString("\r");
+          this.parser.consumeString("\n");
         },
         () => {
           this.parser.consume(" \t\n");
@@ -253,18 +270,20 @@ export class Grammar {
   isDigit = ["digit", (char: string) => "0123456789".includes(char)] as const;
 
   number() {
+    const start = this.parser.pos;
     let result = this.parser.consumeOneOrMore(this.isDigit);
     this.parser.optional(() => {
       this.parser.consume(".");
       result += "." + this.parser.consumeZeroOrMore(this.isDigit);
     });
+    const length = this.parser.pos.pos - start.pos;
     this.whitespaceOpt();
-    return parseFloat(result);
+    return [parseFloat(result), start, length] as const;
   }
 
   value(): AstValue {
     const result = this.parser.choice<AstValue>(
-      () => ({ type: "number", value: this.number() }),
+      () => ({ type: "number", value: this.number()[0] }),
       () => this.symbol()
     );
     return result;
@@ -388,18 +407,56 @@ export class Grammar {
     };
   }
 
-  system() {
+  variableDeclaration(): AstVariableDeclaration {
+    const locked = this.parser.choice(
+      () => {
+        this.parser.consumeString("var");
+        return false;
+      },
+      () => {
+        this.parser.consumeString("lvar");
+        return true;
+      }
+    );
+    this.whitespace();
+    const name = this.symbol();
+    this.parser.consumeString("=");
+    this.whitespaceOpt();
+    const [value, valueStart, valueLength] = this.number();
+    var siPrefix = this.parser.consume([
+      "SI prefix",
+      (char) => siPrefixes.some((p) => p.prefix == char),
+    ]) as SiPrefix;
+    this.whitespaceOpt();
+
+    this.parser.zeroOrMore(() => this.parser.consume("^;"));
+    this.parser.consumeString(";");
+    this.whitespaceOpt();
+
+    return {
+      name: name,
+      value,
+      siPrefix,
+      valueStart,
+      valueLength,
+      locked,
+    };
+  }
+
+  system(): AstSystem {
     this.whitespaceOpt();
 
     const system: AstSystem = {
       equations: [],
       definitions: [],
+      variables: [],
     };
 
     let lastError: CompileError | undefined;
     try {
       while (true) {
         this.parser.choice(
+          () => system.variables.push(this.variableDeclaration()),
           () => system.definitions.push(this.definition()),
           () => system.equations.push(this.equation())
         );

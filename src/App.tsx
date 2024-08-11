@@ -4,11 +4,14 @@ import { SortableList } from "./sortableList/SortableList";
 
 import { checkType, debounce } from "./utils";
 
+import Split from "@uiw/react-split";
 import Prism, { highlight } from "prismjs";
 import "prismjs/components/prism-clike";
 import "prismjs/components/prism-javascript";
 import "prismjs/themes/prism.css";
 import Editor from "react-simple-code-editor";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import { calculate } from "./calculation";
 import { CompileError, Grammar } from "./parser";
 
@@ -80,18 +83,70 @@ export class Project {
   }
 }
 
-const debouncedSave = debounce((project: Project) => {
-  localStorage.setItem(
-    "project1",
-    JSON.stringify(
-      checkType<ProjectSerialized>({
-        sourceCode: project.data.sourceCode,
-        variables: project.data.variables,
-        nextId: project.data.nextId,
-      })
-    )
+function serializeProject(project: Project) {
+  return JSON.stringify(
+    checkType<ProjectSerialized>({
+      sourceCode: project.data.sourceCode,
+      variables: project.data.variables,
+      nextId: project.data.nextId,
+    })
   );
+}
+
+const debouncedSave = debounce((project: Project) => {
+  localStorage.setItem("project1", serializeProject(project));
 }, 500);
+
+function DownloadButton(props: { project: Project }) {
+  return (
+    <button
+      type="button"
+      className="btn btn-secondary"
+      onClick={() => {
+        const data = serializeProject(props.project);
+        if (data) {
+          const blob = new Blob([data], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "project.json";
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      }}
+    >
+      Download
+    </button>
+  );
+}
+
+function UploadButton(props: { onUpload: (project: Project) => void }) {
+  return (
+    <div className="mb-3">
+      <label className="form-label">Import Project</label>
+      <input
+        type="file"
+        className="form-control"
+        onChange={(e) => {
+          const input = e.target;
+          const file = e.target.files?.[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (e1) => {
+              const data = e1.target?.result;
+              if (typeof data === "string") {
+                props.onUpload(Project.fromSerialized(JSON.parse(data)));
+              }
+              input.value = "";
+              toast("Project loaded");
+            };
+            reader.readAsText(file);
+          }
+        }}
+      />
+    </div>
+  );
+}
 
 function App() {
   const [project, setProject] = useState<Project>(() => {
@@ -107,6 +162,8 @@ function App() {
       });
     }
   });
+
+  const [output, setOutput] = useState("");
   const id = useId();
 
   useEffect(() => {
@@ -117,17 +174,27 @@ function App() {
     try {
       const system = new Grammar(project.data.sourceCode).system();
       calculate(project, (fn) => setProject((p) => p.update(fn(p))));
+      setOutput("");
     } catch (e) {
       if (e instanceof CompileError) {
+        setOutput(e.message);
         console.log(e.message);
       } else if (e instanceof Array) {
         e.forEach((e) => console.log(e.message));
+        setOutput(e.map((e) => e.message).join("\n"));
       } else throw e;
     }
   }, [project]);
 
   return (
-    <div>
+    <div
+      style={{
+        margin: "8px",
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <div style={{ display: "flex", flexDirection: "row" }}>
         <SortableList
           items={project.data.variables}
@@ -273,32 +340,53 @@ function App() {
           }}
         ></SortableList>
       </div>
-      <Editor
-        value={project.data.sourceCode}
-        onValueChange={(code) =>
-          setProject((p) => p.update({ sourceCode: code }))
-        }
-        highlight={(code) =>
-          highlightWithLineNumbers(code, Prism.languages.javascript)
-        }
-        padding={10}
-        textareaId="codeArea"
-        className="editor"
-        style={{
-          fontFamily: '"Fira code", "Fira Mono", monospace',
-          fontSize: 18,
-          outline: 0,
-        }}
-      />
+      <Split style={{ minHeight: "200px", flexGrow: 1 }}>
+        <Editor
+          value={project.data.sourceCode}
+          onValueChange={(code) =>
+            setProject((p) => p.update({ sourceCode: code }))
+          }
+          highlight={(code) =>
+            highlightWithLineNumbers(code, Prism.languages.javascript)
+          }
+          padding={10}
+          textareaId="codeArea"
+          className="editor"
+          style={{
+            width: "75%",
+            fontFamily: '"Fira code", "Fira Mono", monospace',
+            fontSize: 18,
+            outline: 0,
+          }}
+        />
+        <div style={{ width: "25%" }}>
+          <pre>{output}</pre>
+        </div>
+      </Split>
 
-      <button
-        type="button"
-        className="btn btn-primary"
-        onClick={performCalculation}
-        style={{ marginTop: "16px" }}
+      <div>
+        <button
+          style={{ marginTop: "16px" }}
+          type="button"
+          className="btn btn-primary"
+          onClick={performCalculation}
+        >
+          Calculate
+        </button>
+      </div>
+
+      <div
+        style={{
+          marginTop: "16px",
+          gap: "8px",
+          display: "flex",
+          alignItems: "center",
+        }}
       >
-        Calculate
-      </button>
+        <DownloadButton project={project} />
+        <UploadButton onUpload={setProject} />
+      </div>
+      <ToastContainer />
     </div>
   );
 }

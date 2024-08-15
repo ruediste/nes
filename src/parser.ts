@@ -183,7 +183,10 @@ export class Parser {
 }
 
 export type AstSymbol = { type: "symbol"; name: string; pos: InputPos };
-type AstValue = { type: "number"; value: number } | AstSymbol;
+type AstValue =
+  | { type: "number"; value: AstNumericValue }
+  | { type: "paren"; expression: AstExpression }
+  | AstSymbol;
 interface AstBinaryOp {
   type: "binaryOp";
   left: AstExpression;
@@ -210,18 +213,25 @@ interface AstDefinition {
 
 interface AstVariableDeclaration {
   name: AstSymbol;
-  value: number;
-  valueStart: InputPos;
-  valueLength: number;
-  siPrefix: SiPrefix;
+  value: AstNumericValue;
   locked: boolean;
 }
 
-interface AstSystem {
+export interface AstSystem {
   equations: AstEquation[];
   definitions: AstDefinition[];
   variables: AstVariableDeclaration[];
 }
+
+export type AstNumericValue = {
+  real: number;
+  realStart: InputPos;
+  realLength: number;
+  siPrefix: SiPrefix;
+} & (
+  | { imag: undefined; imagStart: undefined; imagLength: undefined }
+  | { imag: number; imagStart: InputPos; imagLength: number }
+);
 
 export class Grammar {
   private parser: Parser;
@@ -271,7 +281,8 @@ export class Grammar {
 
   number() {
     const start = this.parser.pos;
-    let result = this.parser.consumeOneOrMore(this.isDigit);
+    let result = this.parser.optional(() => this.parser.consume("-")) ?? "";
+    result = this.parser.consumeOneOrMore(this.isDigit);
     this.parser.optional(() => {
       this.parser.consume(".");
       result += "." + this.parser.consumeZeroOrMore(this.isDigit);
@@ -283,7 +294,15 @@ export class Grammar {
 
   value(): AstValue {
     const result = this.parser.choice<AstValue>(
-      () => ({ type: "number", value: this.number()[0] }),
+      () => {
+        this.parser.consume("(");
+        this.whitespaceOpt();
+        const value = this.expression();
+        this.parser.consume(")");
+        this.whitespaceOpt();
+        return { type: "paren", expression: value };
+      },
+      () => ({ type: "number", value: this.numericValue() }),
       () => this.symbol()
     );
     return result;
@@ -407,6 +426,39 @@ export class Grammar {
     };
   }
 
+  numericValue(): AstNumericValue {
+    const real = this.number();
+    this.whitespaceOpt();
+    const imag = this.parser.optional(() => {
+      this.parser.consume(":");
+      this.whitespaceOpt();
+      const [imag, imagStart, imagLength] = this.number();
+      return [imag, imagStart, imagLength] as const;
+    });
+    const siPrefix =
+      this.parser.optional(
+        () =>
+          this.parser.consume([
+            "SI prefix",
+            (char) => siPrefixes.some((p) => p.prefix == char),
+          ]) as SiPrefix
+      ) ?? "";
+
+    // unit
+    this.parser.zeroOrMore(() => this.parser.consume("a-zA-Z0-9"));
+    this.whitespaceOpt();
+
+    return {
+      real: real[0],
+      realStart: real[1],
+      realLength: real[2],
+      siPrefix,
+      ...(imag === undefined
+        ? { imag: undefined, imagStart: undefined, imagLength: undefined }
+        : { imag: imag[0], imagStart: imag[1], imagLength: imag[2] }),
+    };
+  }
+
   variableDeclaration(): AstVariableDeclaration {
     const locked = this.parser.choice(
       () => {
@@ -422,23 +474,13 @@ export class Grammar {
     const name = this.symbol();
     this.parser.consumeString("=");
     this.whitespaceOpt();
-    const [value, valueStart, valueLength] = this.number();
-    var siPrefix = this.parser.consume([
-      "SI prefix",
-      (char) => siPrefixes.some((p) => p.prefix == char),
-    ]) as SiPrefix;
-    this.whitespaceOpt();
-
-    this.parser.zeroOrMore(() => this.parser.consume("^;"));
+    const value = this.numericValue();
     this.parser.consumeString(";");
     this.whitespaceOpt();
 
     return {
       name: name,
       value,
-      siPrefix,
-      valueStart,
-      valueLength,
       locked,
     };
   }

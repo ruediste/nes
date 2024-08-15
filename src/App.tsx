@@ -13,7 +13,7 @@ import Editor from "react-simple-code-editor";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { calculate } from "./calculation";
-import { CompileError, Grammar } from "./parser";
+import { CompileError } from "./parser";
 
 export const siPrefixes = [
   { prefix: "T", factor: 1e12 },
@@ -172,7 +172,6 @@ function App() {
 
   const performCalculation = useCallback(() => {
     try {
-      const system = new Grammar(project.data.sourceCode).system();
       calculate(project, (fn) => setProject((p) => p.update(fn(p))));
       setOutput("");
     } catch (e) {

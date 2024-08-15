@@ -81,11 +81,36 @@ def cap(I,t, C, dU) {
 test("variable declaration", () => {
   const decl = new Grammar("var f=10 kHz; // Frequency").variableDeclaration();
   expect(decl.name.name).toBe("f");
-  expect(decl.siPrefix).toBe("k");
-  expect(decl.valueStart.pos).toBe(6);
-  expect(decl.valueLength).toBe(2);
+  expect(decl.value.siPrefix).toBe("k");
+  expect(decl.value.realStart.pos).toBe(6);
+  expect(decl.value.realLength).toBe(2);
 });
 
 test("comment", () => {
   new Grammar("var f=10 kHz; // Frequency").system();
+});
+
+test("numericValue", () => {
+  let value = new Grammar("10 kHz").numericValue();
+  expect(value.real).toBe(10);
+  expect(value.siPrefix).toBe("k");
+
+  value = new Grammar("0:10p").numericValue();
+  expect(value.real).toBe(0);
+  expect(value.imag).toBe(10);
+  expect(value.siPrefix).toBe("p");
+
+  value = new Grammar("2 : 10 p").numericValue();
+  expect(value.real).toBe(2);
+  expect(value.imag).toBe(10);
+  expect(value.siPrefix).toBe("p");
+
+  new Grammar("2:-10p").numericValue();
+  new Grammar("2:-10").numericValue();
+
+  value = new Grammar("1.123:-0.123").numericValue();
+  expect(value.realStart.pos).toBe(0);
+  expect(value.realLength).toBe(5);
+  expect(value.imagStart!.pos).toBe(6);
+  expect(value.imagLength).toBe(6);
 });

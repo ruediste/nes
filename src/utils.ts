@@ -21,3 +21,7 @@ export function debounce<TArgs extends any[]>(
     }, wait);
   };
 }
+
+export function zip<T>(a: T[], b: T[]): [T, T][] {
+  return a.map((v, i) => [v, b[i]]);
+}

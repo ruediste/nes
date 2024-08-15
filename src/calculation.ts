@@ -4,16 +4,17 @@ import {
   AstEquation,
   AstExpression,
   AstSymbol,
+  AstSystem,
   CompileError,
   Grammar,
 } from "./parser";
 import { createRange } from "./utils";
 
-class CalculationValue {
+class DualReal {
   constructor(public value: number, public derivatives: number[]) {}
 
-  mul(right: CalculationValue) {
-    return new CalculationValue(
+  mul(right: DualReal) {
+    return new DualReal(
       this.value * right.value,
       this.derivatives.map(
         (d, idx) => d * right.value + right.derivatives[idx] * this.value
@@ -24,44 +25,119 @@ class CalculationValue {
   inverse() {
     const value = 1 / this.value;
     const derivative = -1 / (this.value * this.value);
-    return new CalculationValue(
+    return new DualReal(
       value,
       this.derivatives.map((x) => x * derivative)
     );
   }
 
-  add(right: CalculationValue) {
-    return new CalculationValue(
+  divide(right: DualReal) {
+    return this.mul(right.inverse());
+  }
+
+  add(right: DualReal) {
+    return new DualReal(
       this.value + right.value,
       this.derivatives.map((d, idx) => d + right.derivatives[idx])
     );
   }
-  sub(right: CalculationValue) {
-    return new CalculationValue(
+
+  sub(right: DualReal) {
+    return new DualReal(
       this.value - right.value,
       this.derivatives.map((d, idx) => d - right.derivatives[idx])
+    );
+  }
+
+  neg() {
+    return new DualReal(
+      -this.value,
+      this.derivatives.map((x) => -x)
+    );
+  }
+}
+
+class DualComplex {
+  constructor(public real: DualReal, public imag: DualReal) {}
+
+  mul(right: DualComplex) {
+    return new DualComplex(
+      this.real.mul(right.real).sub(this.imag.mul(right.imag)),
+      this.real.mul(right.imag).add(this.imag.mul(right.real))
+    );
+  }
+
+  inverse() {
+    const dividend = this.real
+      .mul(this.real)
+      .add(this.imag.mul(this.imag))
+      .inverse();
+    return new DualComplex(
+      this.real.mul(dividend),
+      this.imag.neg().mul(dividend)
+    );
+  }
+
+  add(right: DualComplex) {
+    return new DualComplex(
+      this.real.add(right.real),
+      this.imag.add(right.imag)
+    );
+  }
+  sub(right: DualComplex) {
+    return new DualComplex(
+      this.real.sub(right.real),
+      this.imag.sub(right.imag)
     );
   }
 }
 
 interface VariableMap {
-  [key: string]: CalculationValue;
+  [key: string]: DualComplex;
 }
 
-export function calculate(
-  { data }: Project,
-  updateProject: (fn: (p: Project) => Partial<ProjectData>) => void
+function buildVariables(
+  data: ProjectData,
+  system: AstSystem,
+  errors: CompileError[]
 ) {
-  const system = new Grammar(data.sourceCode).system();
-
-  const errors: CompileError[] = [];
-  // build variables
-  const unknownCount =
-    data.variables.flatMap((x) => x).filter((v) => !v.locked).length +
-    system.variables.filter((x) => !x.locked).length;
-  let unknownIndex = 0;
-  const unknowns: { value: CalculationValue }[] = [];
+  let derivativeIndex = 0;
+  const actions: (() => void)[] = [];
+  const mutables: { value: DualReal }[] = [];
   const variables: VariableMap = {};
+
+  function lockedDualReal(value: number) {
+    return () =>
+      new DualReal(
+        value,
+        createRange(derivativeIndex, () => 0)
+      );
+  }
+
+  function mutableDualReal(value: number) {
+    const idx = derivativeIndex++;
+    return () => {
+      const result = new DualReal(
+        value,
+        createRange(derivativeIndex, (e) => (e == idx ? 1 : 0))
+      );
+      mutables.push({ value: result });
+      return result;
+    };
+  }
+
+  function unknownVariable(name: string, r: number, i: number) {
+    const real = mutableDualReal(r);
+    const imag = mutableDualReal(i);
+    actions.push(() => (variables[name] = new DualComplex(real(), imag())));
+  }
+
+  function lockedVariable(name: string, r: number, i: number) {
+    const real = lockedDualReal(r);
+    const imag = lockedDualReal(i);
+    actions.push(() => (variables[name] = new DualComplex(real(), imag())));
+  }
+
   for (const variable of data.variables.flatMap((x) => x)) {
     if (variable.name in variables) {
       errors.push(
@@ -75,18 +151,9 @@ export function calculate(
     }
     const value = variable.value * siPrefixMap[variable.siPrefix];
     if (variable.locked) {
-      variables[variable.name] = new CalculationValue(
-        value,
-        createRange(unknownCount, () => 0)
-      );
+      lockedVariable(variable.name, value, 0);
     } else {
-      const v = new CalculationValue(
-        value,
-        createRange(unknownCount, (idx) => (idx == unknownIndex ? 1 : 0))
-      );
-      variables[variable.name] = v;
-      unknowns.push({ value: v });
-      unknownIndex++;
+      unknownVariable(variable.name, value, 0);
     }
   }
   for (const variable of system.variables) {
@@ -100,21 +167,37 @@ export function calculate(
       );
       continue;
     }
+    const factor = siPrefixMap[variable.value.siPrefix];
     if (variable.locked) {
-      variables[variable.name.name] = new CalculationValue(
-        variable.value,
-        createRange(unknownCount, () => 0)
+      lockedVariable(
+        variable.name.name,
+        variable.value.real * factor,
+        (variable.value.imag ?? 0) * factor
       );
     } else {
-      const value = new CalculationValue(
-        variable.value,
-        createRange(unknownCount, (idx) => (idx == unknownIndex ? 1 : 0))
+      unknownVariable(
+        variable.name.name,
+        variable.value.real * factor,
+        (variable.value.imag ?? 0) * factor
       );
-      variables[variable.name.name] = value;
-      unknowns.push({ value });
-      unknownIndex++;
     }
   }
+  actions.forEach((a) => a());
+  return [mutables, variables, derivativeIndex] as const;
+}
+
+export function calculate(
+  { data }: Project,
+  updateProject: (fn: (p: Project) => Partial<ProjectData>) => void
+) {
+  const system = new Grammar(data.sourceCode).system();
+  const errors: CompileError[] = [];
+
+  const [mutables, variables, derivativeCount] = buildVariables(
+    data,
+    system,
+    errors
+  );
 
   const definitions = Object.fromEntries(
     system.definitions.map((d) => [d.name, d])
@@ -122,17 +205,28 @@ export function calculate(
 
   function evaluateExpression(
     exp: AstExpression,
-    resolveVariable: (name: AstSymbol) => CalculationValue
-  ): () => CalculationValue {
+    resolveVariable: (name: AstSymbol) => DualComplex
+  ): () => DualComplex {
     if (exp.type == "number") {
-      const value = new CalculationValue(
-        exp.value,
-        createRange(unknownCount, () => 0)
+      const factor = siPrefixMap[exp.value.siPrefix];
+
+      const value = new DualComplex(
+        new DualReal(
+          exp.value.real * factor,
+          createRange(derivativeCount, () => 0)
+        ),
+        new DualReal(
+          (exp.value.imag ?? 0) * factor,
+          createRange(derivativeCount, () => 0)
+        )
       );
       return () => value;
     } else if (exp.type == "symbol") {
       const value = resolveVariable(exp);
       return () => value;
+    } else if (exp.type == "paren") {
+      const value = evaluateExpression(exp.expression, resolveVariable);
+      return () => value();
     } else if (exp.type === "binaryOp") {
       const left = evaluateExpression(exp.left, resolveVariable);
       const right = evaluateExpression(exp.right, resolveVariable);
@@ -152,7 +246,7 @@ export function calculate(
 
   function pushEquation(
     eq: AstEquation,
-    resolveVariable: (name: AstSymbol) => CalculationValue
+    resolveVariable: (name: AstSymbol) => DualComplex
   ) {
     if (eq.type == "equationTerminal") {
       const left = evaluateExpression(eq.left, resolveVariable);
@@ -197,7 +291,7 @@ export function calculate(
   }
 
   // collect equations
-  const equations: (() => CalculationValue)[] = [];
+  const equations: (() => DualComplex)[] = [];
   system.equations.forEach((eq) =>
     pushEquation(eq, (name) => {
       if (name.name in variables) {
@@ -211,9 +305,15 @@ export function calculate(
           "Unknown variable " + name.name
         )
       );
-      return new CalculationValue(
-        0,
-        createRange(unknownCount, () => 0)
+      return new DualComplex(
+        new DualReal(
+          0,
+          createRange(derivativeCount, () => 0)
+        ),
+        new DualReal(
+          0,
+          createRange(derivativeCount, () => 0)
+        )
       );
     })
   );
@@ -243,8 +343,12 @@ export function calculate(
     // build the equations
     for (const eq of equations) {
       const value = eq();
-      aRows.push(value.derivatives);
-      b.push(-value.value);
+
+      aRows.push(value.real.derivatives);
+      b.push(-value.real.value);
+
+      aRows.push(value.imag.derivatives);
+      b.push(-value.imag.value);
     }
 
     const A = new Matrix(aRows);
@@ -262,17 +366,24 @@ export function calculate(
           .reverse()
           .filter((x) => !x.locked)
           .forEach((v) => {
+            const variableValue = variables[v.name.name];
+            if (v.value.imag !== undefined) {
+              src =
+                src.substring(0, v.value.imagStart.pos) +
+                variableValue.imag.value / siPrefixMap[v.value.siPrefix] +
+                src.substring(v.value.imagStart.pos + v.value.imagLength);
+            }
             src =
-              src.substring(0, v.valueStart.pos) +
-              variables[v.name.name].value / siPrefixMap[v.siPrefix] +
-              src.substring(v.valueStart.pos + v.valueLength);
+              src.substring(0, v.value.realStart.pos) +
+              variableValue.real.value / siPrefixMap[v.value.siPrefix] +
+              src.substring(v.value.realStart.pos + v.value.realLength);
           });
         return {
           sourceCode: src,
           variables: p.data.variables.map((group) =>
             group.map((v) => ({
               ...v,
-              value: v.locked ? v.value : variables[v.name].value,
+              value: v.locked ? v.value : variables[v.name].real.value,
             }))
           ),
         };
@@ -297,7 +408,7 @@ export function calculate(
     );
 
     // perform the step
-    unknowns.forEach((u, idx) => (u.value.value += alpha * d.get(idx, 0)));
+    mutables.forEach((u, idx) => (u.value.value += alpha * d.get(idx, 0)));
 
     if (lastError !== undefined && e > lastError * 0.99) {
       alpha *= 0.9;

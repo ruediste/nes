@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { AstCall, Grammar, Parser } from "./parser";
+import { AstEquationCall, Grammar, Parser } from "./parser";
 
 test("basic parsing", () => {
   const parser = new Parser("1 + 2 + 3");
@@ -9,17 +9,17 @@ test("basic parsing", () => {
 
   const isDigit = ["digit", (char: string) => /\d/.test(char)] as const;
 
-  expect(parser.peek()).toBe("1");
+  expect(parser.peekChar()).toBe("1");
 
-  const first = parser.consume(isDigit);
+  const first = parser.consumeChar(isDigit);
   whitespace();
 
   var result = [
     first,
     ...parser.zeroOrMore(() => {
-      parser.consume("+");
+      parser.consumeChar("+");
       whitespace();
-      var number = parser.consume(isDigit);
+      var number = parser.consumeChar(isDigit);
       whitespace();
       return number;
     }),
@@ -30,7 +30,9 @@ test("basic parsing", () => {
 test("parse symbol", () => {
   const parser = new Parser("foo");
   function symbol() {
-    return parser.consume("a-zA-Z_") + parser.consumeZeroOrMore("a-zA-Z0-9_");
+    return (
+      parser.consumeChar("a-zA-Z_") + parser.consumeZeroOrMore("a-zA-Z0-9_")
+    );
   }
 
   expect(symbol()).toEqual("foo");
@@ -61,19 +63,19 @@ test("parse equation", () => {
   });
 });
 
-test("call", () => {
+test("equationCall", () => {
   const system = new Grammar("cap(a:foo,b:1+1);").system();
   expect(system.equations).length(1);
-  const call = system.equations[0] as AstCall;
+  const call = system.equations[0] as AstEquationCall;
   expect(call.name.name).toBe("cap");
-  expect(call.arguments.map((a) => a.parameterName.name)).toEqual(["a", "b"]);
-  expect((call.arguments[0].argumentValue as any).name).toEqual("foo");
+  expect(call.namedArgs.map((a) => a.parameterName.name)).toEqual(["a", "b"]);
+  expect((call.namedArgs[0].argumentValue as any).name).toEqual("foo");
 });
 
 test("simple input", () => {
   new Grammar(`
 f=1/T;
-def cap(I,t, C, dU) {
+eq cap(I,t, C, dU) {
   I*t = C*dU;
 }`).system();
 });
@@ -113,4 +115,13 @@ test("numericValue", () => {
   expect(value.realLength).toBe(5);
   expect(value.imagStart!.pos).toBe(6);
   expect(value.imagLength).toBe(6);
+});
+
+test("call", () => {
+  new Grammar("foo()").call();
+  new Grammar("foo(1)").call();
+  new Grammar("foo(a:1)").call();
+  new Grammar("foo ( a : 1 ) ").call();
+  new Grammar("foo(12, foo:bar)").call();
+  expect(() => new Grammar("foo(foo:bar,1)").call()).toThrow();
 });

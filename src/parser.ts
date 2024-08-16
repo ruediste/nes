@@ -31,6 +31,30 @@ interface InputPos {
   lineStartPos: number;
 }
 
+class ErrorAggregator {
+  private errors: CompileError[] = [];
+  private errorPos: number | undefined;
+  public add(e: any) {
+    if (e instanceof Array) {
+      e.forEach((x) => this.add(x));
+    } else if (e instanceof CompileError) {
+      if (this.errorPos === undefined || this.errorPos < e.pos.pos) {
+        this.errors = [e];
+        this.errorPos = e.pos.pos;
+      }
+    } else {
+      throw e;
+    }
+  }
+
+  public getErrors() {
+    return this.errors;
+  }
+
+  public get hasErrors() {
+    return this.errors.length > 0;
+  }
+}
 export class Parser {
   private inputPos: number = 0;
   private lineStartPos: number = 0;
@@ -38,7 +62,7 @@ export class Parser {
   private linePos: number = 1;
   constructor(public input: string) {}
 
-  public peek() {
+  public peekChar() {
     return this.input[this.inputPos];
   }
 
@@ -67,7 +91,7 @@ export class Parser {
     const mark = this.mark();
     let consumed = "";
     for (let i = 0; i < expected.length; i++) {
-      const char = this.consume();
+      const char = this.consumeChar();
       consumed += char;
       if (char !== expected[i]) {
         this.reset(mark);
@@ -78,7 +102,7 @@ export class Parser {
     }
   }
 
-  public consume(predicate?: CharacterPredicate) {
+  public consumeChar(predicate?: CharacterPredicate) {
     if (this.isEOI) {
       throw this.error("End of input reached");
     }
@@ -115,14 +139,17 @@ export class Parser {
 
   public consumeZeroOrMore(predicate: CharacterPredicate) {
     let result = "";
-    while (!this.isEOI && this.isCharacterMatching(this.peek(), predicate)) {
-      result += this.consume();
+    while (
+      !this.isEOI &&
+      this.isCharacterMatching(this.peekChar(), predicate)
+    ) {
+      result += this.consumeChar();
     }
     return result;
   }
 
   public consumeOneOrMore(predicate: CharacterPredicate) {
-    return this.consume(predicate) + this.consumeZeroOrMore(predicate);
+    return this.consumeChar(predicate) + this.consumeZeroOrMore(predicate);
   }
 
   private mark() {
@@ -149,6 +176,12 @@ export class Parser {
     return result;
   }
 
+  public peek(f: () => void) {
+    const mark = this.mark();
+    f();
+    this.reset(mark);
+  }
+
   public optional<T>(f: () => T): T | undefined {
     const mark = this.mark();
     try {
@@ -160,21 +193,18 @@ export class Parser {
   }
 
   public choice<T>(...choices: (() => T)[]): T {
-    let error: CompileError | undefined;
+    const errors = new ErrorAggregator();
+
     for (const choice of choices) {
       const mark = this.mark();
       try {
         return choice();
       } catch (e) {
-        if (e instanceof CompileError) {
-          if (!error || error.pos.pos < e.pos.pos) {
-            error = e;
-          }
-        }
+        errors.add(e);
         this.reset(mark);
       }
     }
-    throw error ?? this.error("No choices matched");
+    throw errors.getErrors();
   }
 
   public oneOrMore<T>(f: () => T): T[] {
@@ -186,7 +216,9 @@ export type AstSymbol = { type: "symbol"; name: string; pos: InputPos };
 type AstValue =
   | { type: "number"; value: AstNumericValue }
   | { type: "paren"; expression: AstExpression }
+  | AstFunctionCall
   | AstSymbol;
+
 interface AstBinaryOp {
   type: "binaryOp";
   left: AstExpression;
@@ -194,21 +226,36 @@ interface AstBinaryOp {
   operator: "+" | "-" | "*" | "/";
 }
 export type AstExpression = AstBinaryOp | AstValue;
+
 export interface AstCall {
-  type: "call";
   name: AstSymbol;
-  arguments: { parameterName: AstSymbol; argumentValue: AstExpression }[];
+  positionalArgs: AstExpression[];
+  namedArgs: { parameterName: AstSymbol; argumentValue: AstExpression }[];
 }
+
+export interface AstEquationCall extends AstCall {
+  type: "equationCall";
+}
+export interface AstFunctionCall extends AstCall {
+  type: "functionCall";
+}
+
 export interface AstEquationTerminal {
   type: "equationTerminal";
   left: AstExpression;
   right: AstExpression;
 }
-export type AstEquation = AstCall | AstEquationTerminal;
-interface AstDefinition {
+export type AstEquation = AstEquationCall | AstEquationTerminal;
+
+interface AstEquationDefinition {
   name: string;
   parameters: string[];
   equations: AstEquation[];
+}
+interface AstFunctionDefinition {
+  name: string;
+  parameters: string[];
+  expression: AstExpression;
 }
 
 interface AstVariableDeclaration {
@@ -219,7 +266,8 @@ interface AstVariableDeclaration {
 
 export interface AstSystem {
   equations: AstEquation[];
-  definitions: AstDefinition[];
+  equationDefinitions: AstEquationDefinition[];
+  functionDefinitions: AstFunctionDefinition[];
   variables: AstVariableDeclaration[];
 }
 
@@ -245,15 +293,15 @@ export class Grammar {
       this.parser.choice(
         () => {
           this.parser.consumeString("//");
-          this.parser.zeroOrMore(() => this.parser.consume("^\n"));
-          if (!this.parser.isEOI) this.parser.consume("\n");
+          this.parser.zeroOrMore(() => this.parser.consumeChar("^\n"));
+          if (!this.parser.isEOI) this.parser.consumeChar("\n");
         },
         () => {
           this.parser.consumeString("\r");
           this.parser.consumeString("\n");
         },
         () => {
-          this.parser.consume(" \t\n");
+          this.parser.consumeChar(" \t\n");
         }
       );
     });
@@ -269,7 +317,7 @@ export class Grammar {
         type: "symbol",
         pos: this.parser.pos,
         name:
-          this.parser.consume("a-zA-Z_") +
+          this.parser.consumeChar("a-zA-Z_") +
           this.parser.consumeZeroOrMore("a-zA-Z0-9_"),
       };
     } finally {
@@ -281,10 +329,10 @@ export class Grammar {
 
   number() {
     const start = this.parser.pos;
-    let result = this.parser.optional(() => this.parser.consume("-")) ?? "";
+    let result = this.parser.optional(() => this.parser.consumeChar("-")) ?? "";
     result = this.parser.consumeOneOrMore(this.isDigit);
     this.parser.optional(() => {
-      this.parser.consume(".");
+      this.parser.consumeChar(".");
       result += "." + this.parser.consumeZeroOrMore(this.isDigit);
     });
     const length = this.parser.pos.pos - start.pos;
@@ -292,29 +340,41 @@ export class Grammar {
     return [parseFloat(result), start, length] as const;
   }
 
+  functionCall(): AstFunctionCall {
+    const call = this.call();
+    return {
+      type: "functionCall",
+      ...call,
+    };
+  }
+
   value(): AstValue {
     const result = this.parser.choice<AstValue>(
       () => {
-        this.parser.consume("(");
+        this.parser.consumeChar("(");
         this.whitespaceOpt();
         const value = this.expression();
-        this.parser.consume(")");
+        this.parser.consumeChar(")");
         this.whitespaceOpt();
         return { type: "paren", expression: value };
       },
       () => ({ type: "number", value: this.numericValue() }),
+      () => this.functionCall(),
       () => this.symbol()
     );
     return result;
   }
 
   binaryOp(operators: string, nested: () => AstExpression) {
-    let result: AstValue | AstBinaryOp = nested();
-    for (const operation of this.parser.zeroOrMore(() => {
-      const op = this.parser.consume(operators) as AstBinaryOp["operator"];
+    let result: AstExpression = nested();
+
+    const operatorUsages = this.parser.zeroOrMore(() => {
+      const op = this.parser.consumeChar(operators) as AstBinaryOp["operator"];
       this.whitespaceOpt();
       return [op, nested()] as const;
-    })) {
+    });
+
+    for (const operation of operatorUsages) {
       result = {
         type: "binaryOp",
         left: result,
@@ -339,10 +399,10 @@ export class Grammar {
 
   equationTerminal(): AstEquationTerminal {
     const left = this.expression();
-    this.parser.consume("=");
+    this.parser.consumeChar("=");
     this.whitespaceOpt();
     const right = this.expression();
-    this.parser.consume(";");
+    this.parser.consumeChar(";");
     this.whitespaceOpt();
     return {
       type: "equationTerminal",
@@ -353,39 +413,44 @@ export class Grammar {
   equation(): AstEquation {
     return this.parser.choice<AstEquation>(
       () => this.equationTerminal(),
-      () => this.call()
+      () => this.equationCall()
     );
   }
 
-  definition(): AstDefinition {
-    this.parser.consumeString("def");
-    this.whitespace();
-    const name = this.symbol().name;
-    this.parser.consume("(");
-    this.whitespaceOpt();
-    const parameters =
+  parameterList() {
+    return (
       this.parser
         .optional(() => {
           const first = this.symbol();
           return [
             first,
             ...this.parser.zeroOrMore(() => {
-              this.parser.consume(",");
+              this.parser.consumeChar(",");
               this.whitespaceOpt();
               const p = this.symbol();
               return p;
             }),
           ];
         })
-        ?.map((x) => x.name) ?? [];
-    this.parser.consume(")");
+        ?.map((x) => x.name) ?? []
+    );
+  }
+
+  equationDefinition(): AstEquationDefinition {
+    this.parser.consumeString("eq");
+    this.whitespace();
+    const name = this.symbol().name;
+    this.parser.consumeString("(");
     this.whitespaceOpt();
-    this.parser.consume("{");
+    const parameters = this.parameterList();
+    this.parser.consumeString(")");
+    this.whitespaceOpt();
+    this.parser.consumeString("{");
     this.whitespaceOpt();
 
     const equations = this.parser.zeroOrMore(() => this.equation());
 
-    this.parser.consume("}");
+    this.parser.consumeString("}");
     this.whitespaceOpt();
     return {
       name,
@@ -394,35 +459,95 @@ export class Grammar {
     };
   }
 
-  callArgument() {
-    const parameterName = this.symbol();
-    this.parser.consume(":");
+  functionDefinition(): AstFunctionDefinition {
+    this.parser.consumeString("fun");
+    this.whitespace();
+    const name = this.symbol().name;
+    this.parser.consumeString("(");
     this.whitespaceOpt();
-    const argumentValue = this.expression();
-    return { parameterName, argumentValue };
+    const parameters = this.parameterList();
+    this.parser.consumeString(")");
+    this.whitespaceOpt();
+    this.parser.consumeString("=");
+    this.whitespaceOpt();
+    const expression = this.expression();
+    this.parser.consumeString(";");
+    this.whitespaceOpt();
+    return {
+      name,
+      parameters,
+      expression,
+    };
   }
 
   call(): AstCall {
     const name = this.symbol();
-    this.parser.consume("(");
+    this.parser.consumeChar("(");
     this.whitespaceOpt();
-    const args =
+
+    const positionalArg = () => {
+      const value = this.expression();
+      this.parser.log("afterPos");
+      this.parser.peek(() =>
+        this.parser.choice(
+          () => this.parser.consumeString(","),
+          () => this.parser.consumeString(")")
+        )
+      );
+      return value;
+    };
+
+    const positionalArgs =
       this.parser.optional(() => [
-        this.callArgument(),
+        positionalArg(),
         ...this.parser.zeroOrMore(() => {
-          this.parser.consume(",");
+          this.parser.consumeString(",");
           this.whitespaceOpt();
-          return this.callArgument();
+          return positionalArg();
         }),
       ]) ?? [];
-    this.parser.consume(")");
-    this.whitespaceOpt();
-    this.parser.consume(";");
+
+    const namedArg = () => {
+      const parameterName = this.symbol();
+      this.whitespaceOpt();
+      this.parser.consumeString(":");
+      this.whitespaceOpt();
+      const argumentValue = this.expression();
+      return { parameterName, argumentValue };
+    };
+
+    const namedArgs =
+      this.parser.optional(() => {
+        if (positionalArgs.length > 0) {
+          this.parser.consumeString(",");
+          this.whitespaceOpt();
+        }
+        return [
+          namedArg(),
+          ...this.parser.zeroOrMore(() => {
+            this.parser.consumeString(",");
+            this.whitespaceOpt();
+            return namedArg();
+          }),
+        ];
+      }) ?? [];
+
+    this.parser.consumeString(")");
     this.whitespaceOpt();
     return {
-      type: "call",
       name,
-      arguments: args,
+      positionalArgs,
+      namedArgs,
+    };
+  }
+
+  equationCall(): AstEquationCall {
+    const call = this.call();
+    this.parser.consumeChar(";");
+    this.whitespaceOpt();
+    return {
+      type: "equationCall",
+      ...call,
     };
   }
 
@@ -430,7 +555,7 @@ export class Grammar {
     const real = this.number();
     this.whitespaceOpt();
     const imag = this.parser.optional(() => {
-      this.parser.consume(":");
+      this.parser.consumeChar(":");
       this.whitespaceOpt();
       const [imag, imagStart, imagLength] = this.number();
       return [imag, imagStart, imagLength] as const;
@@ -438,14 +563,14 @@ export class Grammar {
     const siPrefix =
       this.parser.optional(
         () =>
-          this.parser.consume([
+          this.parser.consumeChar([
             "SI prefix",
             (char) => siPrefixes.some((p) => p.prefix == char),
           ]) as SiPrefix
       ) ?? "";
 
     // unit
-    this.parser.zeroOrMore(() => this.parser.consume("a-zA-Z0-9"));
+    this.parser.zeroOrMore(() => this.parser.consumeChar("a-zA-Z0-9"));
     this.whitespaceOpt();
 
     return {
@@ -490,28 +615,28 @@ export class Grammar {
 
     const system: AstSystem = {
       equations: [],
-      definitions: [],
+      equationDefinitions: [],
+      functionDefinitions: [],
       variables: [],
     };
 
-    let lastError: CompileError | undefined;
+    const errors = new ErrorAggregator();
     try {
       while (true) {
         this.parser.choice(
           () => system.variables.push(this.variableDeclaration()),
-          () => system.definitions.push(this.definition()),
+          () => system.equationDefinitions.push(this.equationDefinition()),
+          () => system.functionDefinitions.push(this.functionDefinition()),
           () => system.equations.push(this.equation())
         );
       }
     } catch (e) {
-      if (e instanceof CompileError) {
-        lastError = e;
-      } else {
-        throw e;
-      }
+      errors.add(e);
     }
     if (!this.parser.isEOI) {
-      throw lastError ?? this.parser.error("Expected Equation or Definition");
+      throw errors.hasErrors
+        ? errors.getErrors()
+        : this.parser.error("Expected Equation or Definition");
     }
     return system;
   }

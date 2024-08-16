@@ -1,6 +1,7 @@
 import Matrix, { solve } from "ml-matrix";
 import { Project, ProjectData, siPrefixMap } from "./App";
 import {
+  AstCall,
   AstEquation,
   AstExpression,
   AstSymbol,
@@ -19,6 +20,12 @@ class DualReal {
       this.derivatives.map(
         (d, idx) => d * right.value + right.derivatives[idx] * this.value
       )
+    );
+  }
+  mulC(right: number) {
+    return new DualReal(
+      this.value * right,
+      this.derivatives.map((d) => d * right)
     );
   }
 
@@ -53,6 +60,26 @@ class DualReal {
     return new DualReal(
       -this.value,
       this.derivatives.map((x) => -x)
+    );
+  }
+
+  sqrt() {
+    const value = Math.sqrt(this.value);
+    const derivative = 1 / (2 * value);
+    return new DualReal(
+      value,
+      this.derivatives.map((x) => x * derivative)
+    );
+  }
+
+  atan2(x: DualReal) {
+    const value = Math.atan2(this.value, x.value);
+    const divisor = this.value * this.value + x.value * x.value;
+    const dy = x.value / divisor;
+    const dx = -this.value / divisor;
+    return new DualReal(
+      value,
+      this.derivatives.map((d, idx) => dy * d + dx * x.derivatives[idx])
     );
   }
 }
@@ -91,6 +118,70 @@ class DualComplex {
     );
   }
 }
+
+interface ArgumentSet {
+  [x: string]: () => DualComplex;
+}
+
+const builtinFunctions: {
+  [key: string]: {
+    parameters: string[];
+    fn: (args: ArgumentSet) => DualComplex;
+  };
+} = {
+  abs: {
+    parameters: ["x"],
+    fn: (args) => {
+      const x = args.x();
+      return new DualComplex(
+        x.real.mul(x.real).add(x.imag.mul(x.imag)).sqrt(),
+        new DualReal(
+          0,
+          createRange(x.real.derivatives.length, () => 0)
+        )
+      );
+    },
+  },
+  phase: {
+    parameters: ["x"],
+    fn: (args) => {
+      const x = args.x();
+      return new DualComplex(
+        x.imag.atan2(x.real),
+        new DualReal(
+          0,
+          createRange(x.real.derivatives.length, () => 0)
+        )
+      );
+    },
+  },
+  rad2dec: {
+    parameters: ["x"],
+    fn: (args) => {
+      const x = args.x();
+      return new DualComplex(
+        x.real.mulC(180 / Math.PI),
+        new DualReal(
+          0,
+          createRange(x.real.derivatives.length, () => 0)
+        )
+      );
+    },
+  },
+  dec2rad: {
+    parameters: ["x"],
+    fn: (args) => {
+      const x = args.x();
+      return new DualComplex(
+        x.real.mulC(Math.PI / 180),
+        new DualReal(
+          0,
+          createRange(x.real.derivatives.length, () => 0)
+        )
+      );
+    },
+  },
+};
 
 interface VariableMap {
   [key: string]: DualComplex;
@@ -200,8 +291,54 @@ export function calculate(
   );
 
   const definitions = Object.fromEntries(
-    system.definitions.map((d) => [d.name, d])
+    system.equationDefinitions.map((d) => [d.name, d])
   );
+
+  function buildArguments(
+    parameters: string[],
+    call: AstCall,
+    resolveVariable: (name: AstSymbol) => DualComplex
+  ): ArgumentSet {
+    // check positional argument count
+    if (parameters.length < call.positionalArgs.length) {
+      throw new CompileError(
+        data.sourceCode,
+        call.name.pos,
+        "Too many arguments"
+      );
+    }
+
+    const positionalArgs = Object.fromEntries(
+      call.positionalArgs.map((a, idx) => [
+        parameters[idx],
+        evaluateExpression(a, resolveVariable),
+      ])
+    );
+
+    const namedArgs = Object.fromEntries(
+      call.namedArgs.map((a) => [
+        a.parameterName.name,
+        evaluateExpression(a.argumentValue, resolveVariable),
+      ])
+    );
+
+    // check if arguments and parameters match
+    const namedParameterSet = new Set(
+      parameters.slice(call.positionalArgs.length)
+    );
+    Object.keys(namedArgs).forEach((arg) => {
+      if (!namedParameterSet.has(arg)) {
+        throw "Unknown parameter " + arg;
+      }
+    });
+    namedParameterSet.forEach((param) => {
+      if (namedArgs.hasOwnProperty(param)) {
+        throw "Missing argument " + param;
+      }
+    });
+
+    return { ...positionalArgs, ...namedArgs };
+  }
 
   function evaluateExpression(
     exp: AstExpression,
@@ -227,6 +364,17 @@ export function calculate(
     } else if (exp.type == "paren") {
       const value = evaluateExpression(exp.expression, resolveVariable);
       return () => value();
+    } else if (exp.type == "functionCall") {
+      if (!(exp.name.name in builtinFunctions)) {
+        throw new CompileError(
+          data.sourceCode,
+          exp.name.pos,
+          "Unknown function " + exp.name.name
+        );
+      }
+      const fn = builtinFunctions[exp.name.name];
+      const args = buildArguments(fn.parameters, exp, resolveVariable);
+      return () => fn.fn(args);
     } else if (exp.type === "binaryOp") {
       const left = evaluateExpression(exp.left, resolveVariable);
       const right = evaluateExpression(exp.right, resolveVariable);
@@ -257,32 +405,13 @@ export function calculate(
       if (!def) {
         throw "Unknown definition " + eq.name.name;
       }
-      const args = Object.fromEntries(
-        eq.arguments.map((a) => [
-          a.parameterName.name,
-          evaluateExpression(a.argumentValue, resolveVariable),
-        ])
-      );
 
-      // check if arguments and parameters match
-      const argSet = new Set(Object.keys(args));
-      const parameterSet = new Set(def.parameters);
-      Object.keys(args).forEach((arg) => {
-        if (!parameterSet.has(arg)) {
-          throw "Unknown parameter " + arg;
-        }
-      });
-
-      def.parameters.forEach((param) => {
-        if (!argSet.has(param)) {
-          throw "Missing argument " + param;
-        }
-      });
+      const allArgs = buildArguments(def.parameters, eq, resolveVariable);
 
       def.equations.map((eq) =>
         pushEquation(eq, (name) => {
-          if (name.name in args) {
-            return args[name.name]();
+          if (name.name in allArgs) {
+            return allArgs[name.name]();
           }
           return resolveVariable(name);
         })
@@ -357,7 +486,7 @@ export function calculate(
     // calculate the error and break loop if applicable
     const e = B.norm();
 
-    if (e < 1e-15) {
+    if (e < 1e-14) {
       console.log("Solution found");
       // apply the solution
       updateProject((p) => {

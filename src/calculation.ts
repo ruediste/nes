@@ -181,6 +181,32 @@ const builtinFunctions: {
       );
     },
   },
+  real: {
+    parameters: ["x"],
+    fn: (args) => {
+      const x = args.x();
+      return new DualComplex(
+        x.real,
+        new DualReal(
+          0,
+          createRange(x.real.derivatives.length, () => 0)
+        )
+      );
+    },
+  },
+  imag: {
+    parameters: ["x"],
+    fn: (args) => {
+      const x = args.x();
+      return new DualComplex(
+        x.imag,
+        new DualReal(
+          0,
+          createRange(x.real.derivatives.length, () => 0)
+        )
+      );
+    },
+  },
 };
 
 interface VariableMap {
@@ -280,7 +306,7 @@ function buildVariables(
 export function calculate(
   { data }: Project,
   updateProject: (fn: (p: Project) => Partial<ProjectData>) => void
-) {
+): string {
   const system = new Grammar(data.sourceCode).system();
   const errors: CompileError[] = [];
 
@@ -486,8 +512,9 @@ export function calculate(
     // calculate the error and break loop if applicable
     const e = B.norm();
 
-    if (e < 1e-14) {
+    if (e < 1e-12) {
       console.log("Solution found");
+
       // apply the solution
       updateProject((p) => {
         let src = p.data.sourceCode;
@@ -496,11 +523,22 @@ export function calculate(
           .filter((x) => !x.locked)
           .forEach((v) => {
             const variableValue = variables[v.name.name];
+            let imagValue = variableValue.imag.value;
+            if (Math.abs(imagValue) < 1e-12) {
+              imagValue = 0;
+            }
+
             if (v.value.imag !== undefined) {
               src =
                 src.substring(0, v.value.imagStart.pos) +
-                variableValue.imag.value / siPrefixMap[v.value.siPrefix] +
+                imagValue / siPrefixMap[v.value.siPrefix] +
                 src.substring(v.value.imagStart.pos + v.value.imagLength);
+            } else if (imagValue !== 0) {
+              src =
+                src.substring(0, v.value.realStart.pos + v.value.realLength) +
+                ":" +
+                imagValue / siPrefixMap[v.value.siPrefix] +
+                src.substring(v.value.realStart.pos + v.value.realLength);
             }
             src =
               src.substring(0, v.value.realStart.pos) +
@@ -517,7 +555,7 @@ export function calculate(
           ),
         };
       });
-      break;
+      return "Solution found. Error: " + e;
     }
 
     let d = solve(A, B);
@@ -544,7 +582,7 @@ export function calculate(
     }
 
     if (alpha < 0.1 || n > 100) {
-      break;
+      return "Solver failed to converge. Error: " + e;
     }
 
     lastError = e;

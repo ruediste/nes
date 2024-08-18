@@ -125,3 +125,15 @@ test("call", () => {
   new Grammar("foo(12, foo:bar)").call();
   expect(() => new Grammar("foo(foo:bar,1)").call()).toThrow();
 });
+
+test("number", () => {
+  expect(new Grammar("1").number()[0]).toBe(1);
+  expect(new Grammar("-1").number()[0]).toBe(-1);
+  expect(new Grammar("1.1").number()[0]).toBe(1.1);
+  expect(new Grammar("1.1e1").number()[0]).toBe(11);
+  expect(new Grammar("1.1e-32").number()[0]).toBe(1.1e-32);
+  expect(new Grammar("1.1e+32").number()[0]).toBe(1.1e32);
+  expect(new Grammar("1e1").number()[0]).toBe(10);
+  expect(new Grammar("1e-1").number()[0]).toBe(0.1);
+  expect(new Grammar("1e+1").number()[0]).toBe(10);
+});

@@ -172,8 +172,7 @@ function App() {
 
   const performCalculation = useCallback(() => {
     try {
-      calculate(project, (fn) => setProject((p) => p.update(fn(p))));
-      setOutput("");
+      setOutput(calculate(project, (fn) => setProject((p) => p.update(fn(p)))));
     } catch (e) {
       if (e instanceof CompileError) {
         setOutput(e.message);
@@ -181,7 +180,10 @@ function App() {
       } else if (e instanceof Array) {
         e.forEach((e) => console.log(e.message));
         setOutput(e.map((e) => e.message).join("\n"));
-      } else throw e;
+      } else {
+        setOutput("" + e);
+        console.error(e);
+      }
     }
   }, [project]);
 

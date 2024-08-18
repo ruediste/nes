@@ -330,10 +330,17 @@ export class Grammar {
   number() {
     const start = this.parser.pos;
     let result = this.parser.optional(() => this.parser.consumeChar("-")) ?? "";
-    result = this.parser.consumeOneOrMore(this.isDigit);
+    result += this.parser.consumeOneOrMore(this.isDigit);
     this.parser.optional(() => {
       this.parser.consumeChar(".");
       result += "." + this.parser.consumeZeroOrMore(this.isDigit);
+    });
+    this.parser.optional(() => {
+      this.parser.consumeChar("e");
+      result +=
+        "e" +
+        this.parser.consumeZeroOrMore("+-") +
+        this.parser.consumeOneOrMore(this.isDigit);
     });
     const length = this.parser.pos.pos - start.pos;
     this.whitespaceOpt();

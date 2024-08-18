@@ -255,24 +255,6 @@ function buildVariables(
     actions.push(() => (variables[name] = new DualComplex(real(), imag())));
   }
 
-  for (const variable of data.variables.flatMap((x) => x)) {
-    if (variable.name in variables) {
-      errors.push(
-        new CompileError(
-          data.sourceCode,
-          { lineNr: 1, linePos: 1, lineStartPos: 0, pos: 0 },
-          "Duplicate variable " + variable.name
-        )
-      );
-      continue;
-    }
-    const value = variable.value * siPrefixMap[variable.siPrefix];
-    if (variable.locked) {
-      lockedVariable(variable.name, value, 0);
-    } else {
-      unknownVariable(variable.name, value, 0);
-    }
-  }
   for (const variable of system.variables) {
     if (variable.name.name in variables) {
       errors.push(
@@ -547,12 +529,6 @@ export function calculate(
           });
         return {
           sourceCode: src,
-          variables: p.data.variables.map((group) =>
-            group.map((v) => ({
-              ...v,
-              value: v.locked ? v.value : variables[v.name].real.value,
-            }))
-          ),
         };
       });
       return "Solution found. Error: " + e;

@@ -494,7 +494,6 @@ export class Grammar {
 
     const positionalArg = () => {
       const value = this.expression();
-      this.parser.log("afterPos");
       this.parser.peek(() =>
         this.parser.choice(
           () => this.parser.consumeString(","),

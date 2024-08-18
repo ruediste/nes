@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useId, useState } from "react";
-import { NumberInput, StringInput } from "./Input";
-import { SortableList } from "./sortableList/SortableList";
 
 import { checkType, debounce } from "./utils";
 
@@ -34,20 +32,8 @@ export const siPrefixMap: { [key in SiPrefix]: number } = Object.fromEntries(
   siPrefixes.map((x) => [x.prefix, x.factor])
 ) as any;
 
-export interface VariableDefinition {
-  locked: boolean;
-  id: number;
-  name: string;
-  description: string;
-  siPrefix: SiPrefix;
-  unit: string;
-  value: number;
-}
-
 interface ProjectSerialized {
   sourceCode: string;
-  variables: VariableDefinition[][];
-  nextId: number;
 }
 
 export interface ProjectData extends ProjectSerialized {}
@@ -63,32 +49,12 @@ export class Project {
   public update(data: Partial<ProjectData>) {
     return new Project({ ...this.data, ...data });
   }
-
-  public updateVariable(id: number, update: Partial<VariableDefinition>) {
-    return this.update({
-      variables: this.data.variables.map((vlist) =>
-        vlist.map((v) => (v.id === id ? { ...v, ...update } : v))
-      ),
-    });
-  }
-  public updateVariableGroup(
-    groupIndex: number,
-    fn: (group: VariableDefinition[]) => VariableDefinition[]
-  ) {
-    return this.update({
-      variables: this.data.variables.map((group, idx) =>
-        idx === groupIndex ? fn(group) : group
-      ),
-    });
-  }
 }
 
 function serializeProject(project: Project) {
   return JSON.stringify(
     checkType<ProjectSerialized>({
       sourceCode: project.data.sourceCode,
-      variables: project.data.variables,
-      nextId: project.data.nextId,
     })
   );
 }
@@ -157,8 +123,6 @@ function App() {
     } else {
       return Project.fromSerialized({
         sourceCode: "",
-        variables: [[], []],
-        nextId: 1,
       });
     }
   });
@@ -196,151 +160,6 @@ function App() {
         flexDirection: "column",
       }}
     >
-      <div style={{ display: "flex", flexDirection: "row" }}>
-        <SortableList
-          items={project.data.variables}
-          onChange={(newVariables) =>
-            setProject((p) => p.update({ variables: newVariables }))
-          }
-          renderContainer={(children, groupIndex) => (
-            <div
-              style={{
-                flexGrow: 1,
-              }}
-            >
-              <div className="list-group" style={{ minHeight: "40px" }}>
-                {children}
-              </div>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() =>
-                  setProject((p) =>
-                    p
-                      .updateVariableGroup(groupIndex, (g) => [
-                        ...g,
-                        {
-                          id: p.data.nextId,
-                          name: "new",
-                          description: "",
-                          siPrefix: "",
-                          unit: "",
-                          value: 0,
-                          locked: false,
-                        },
-                      ])
-                      .update({ nextId: p.data.nextId + 1 })
-                  )
-                }
-                style={{}}
-              >
-                Add
-              </button>
-            </div>
-          )}
-          renderItem={({
-            item: variable,
-            isDragPlaceholder,
-            setNodeRef,
-            style,
-            groupIndex,
-          }) => {
-            function update(data: Partial<VariableDefinition>) {
-              setProject((p) => p.updateVariable(variable.id, data));
-            }
-            return (
-              <li
-                className="list-group-item"
-                ref={setNodeRef}
-                style={{
-                  ...style,
-                  display: "flex",
-                  flexDirection: "row",
-                  ...(isDragPlaceholder
-                    ? {
-                        backgroundColor: "white",
-                        border: "solid black 1px",
-                        borderRadius: "5px",
-                      }
-                    : {}),
-                }}
-              >
-                <SortableList.DragHandle />
-                <StringInput
-                  value={variable.name}
-                  placeholder="Name"
-                  onChange={(name) => update({ name })}
-                />
-                <StringInput
-                  value={variable.description}
-                  placeholder="Description"
-                  onChange={(description) => update({ description })}
-                />
-                <NumberInput
-                  className="w-auto"
-                  value={variable.value / siPrefixMap[variable.siPrefix]}
-                  onChange={(value) =>
-                    update({
-                      value: value * siPrefixMap[variable.siPrefix],
-                    })
-                  }
-                />
-                <select
-                  className="form-select"
-                  style={{ width: "75px" }}
-                  value={variable.siPrefix}
-                  onChange={(e) =>
-                    update({ siPrefix: e.target.value as SiPrefix })
-                  }
-                >
-                  {siPrefixes.map((prefix) => (
-                    <option key={prefix.prefix} value={prefix.prefix}>
-                      {prefix.prefix}
-                    </option>
-                  ))}
-                </select>
-                <StringInput
-                  style={{ width: "75px" }}
-                  value={variable.unit}
-                  placeholder="Unit"
-                  onChange={(unit) => update({ unit })}
-                />
-                <div className="form-check form-switch">
-                  <input
-                    className="form-check-input"
-                    type="checkbox"
-                    role="switch"
-                    id={`${id}-${variable.id}-locked`}
-                    checked={variable.locked}
-                    onChange={(e) => update({ locked: e.target.checked })}
-                  />
-                  <label
-                    className="form-check-label"
-                    htmlFor={`${id}-${variable.id}-locked`}
-                  >
-                    Locked
-                  </label>
-                </div>
-
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ marginLeft: "8px" }}
-                  onClick={() =>
-                    setProject((p) =>
-                      p.updateVariableGroup(groupIndex, (g) =>
-                        g.filter((x) => x.id !== variable.id)
-                      )
-                    )
-                  }
-                >
-                  Delete
-                </button>
-              </li>
-            );
-          }}
-        ></SortableList>
-      </div>
       <Split style={{ minHeight: "200px", flexGrow: 1 }}>
         <Editor
           value={project.data.sourceCode}

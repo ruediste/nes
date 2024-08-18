@@ -4,8 +4,6 @@ import { checkType, debounce } from "./utils";
 
 import Split from "@uiw/react-split";
 import Prism, { highlight } from "prismjs";
-import "prismjs/components/prism-clike";
-import "prismjs/components/prism-javascript";
 import "prismjs/themes/prism.css";
 import Editor from "react-simple-code-editor";
 import { toast, ToastContainer } from "react-toastify";
@@ -25,6 +23,15 @@ export const siPrefixes = [
   { prefix: "n", factor: 1e-9 },
   { prefix: "p", factor: 1e-12 },
 ] as const;
+
+Prism.languages["nes"] = {
+  keyword: [/\bvar\b/, /\blvar\b/],
+  number: /-?\d+(\.\d+)?(e-?\d+)?/,
+  comment: { pattern: /\/\/.*/, greedy: true },
+  operator: /[\-+*\/=]/,
+  punctuation: /[];:\(\)]/,
+  function: { pattern: /\b[a-zA-Z_][a-zA-Z0-9]*\b(?=\()/, greedy: true },
+};
 
 export type SiPrefix = (typeof siPrefixes)[number]["prefix"];
 
@@ -167,7 +174,7 @@ function App() {
             setProject((p) => p.update({ sourceCode: code }))
           }
           highlight={(code) =>
-            highlightWithLineNumbers(code, Prism.languages.javascript)
+            highlightWithLineNumbers(code, Prism.languages.nes)
           }
           padding={10}
           textareaId="codeArea"
@@ -212,7 +219,7 @@ function App() {
 }
 
 const highlightWithLineNumbers = (input: string, language: Prism.Grammar) =>
-  highlight(input, language, "javascript")
+  highlight(input, language, "nes")
     .split("\n")
     .map((line, i) => `<span class='editorLineNumber'>${i + 1}</span>${line}`)
     .join("\n");

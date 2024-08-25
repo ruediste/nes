@@ -1,5 +1,5 @@
 import Matrix, { solve } from "ml-matrix";
-import { Project, ProjectData, siPrefixMap } from "./App";
+import { siPrefixMap } from "./App";
 import {
   AstCall,
   AstEquation,
@@ -214,7 +214,7 @@ interface VariableMap {
 }
 
 function buildVariables(
-  data: ProjectData,
+  sourceCode: string,
   system: AstSystem,
   errors: CompileError[]
 ) {
@@ -259,7 +259,7 @@ function buildVariables(
     if (variable.name.name in variables) {
       errors.push(
         new CompileError(
-          data.sourceCode,
+          sourceCode,
           variable.name.pos,
           "Duplicate variable " + variable.name.name
         )
@@ -285,15 +285,15 @@ function buildVariables(
   return [mutables, variables, derivativeIndex] as const;
 }
 
-export function calculate(
-  { data }: Project,
-  updateProject: (fn: (p: Project) => Partial<ProjectData>) => void
-): string {
-  const system = new Grammar(data.sourceCode).system();
+export function calculate(sourceCode: string): {
+  updatedSourceCode: string;
+  output: string;
+} {
+  const system = new Grammar(sourceCode).system();
   const errors: CompileError[] = [];
 
   const [mutables, variables, derivativeCount] = buildVariables(
-    data,
+    sourceCode,
     system,
     errors
   );
@@ -309,11 +309,7 @@ export function calculate(
   ): ArgumentSet {
     // check positional argument count
     if (parameters.length < call.positionalArgs.length) {
-      throw new CompileError(
-        data.sourceCode,
-        call.name.pos,
-        "Too many arguments"
-      );
+      throw new CompileError(sourceCode, call.name.pos, "Too many arguments");
     }
 
     const positionalArgs = Object.fromEntries(
@@ -337,7 +333,7 @@ export function calculate(
     Object.keys(namedArgs).forEach((arg) => {
       if (!namedParameterSet.has(arg)) {
         throw new CompileError(
-          data.sourceCode,
+          sourceCode,
           call.name.pos,
           "Unknown parameter " + arg
         );
@@ -346,7 +342,7 @@ export function calculate(
     namedParameterSet.forEach((param) => {
       if (!namedArgs.hasOwnProperty(param)) {
         throw new CompileError(
-          data.sourceCode,
+          sourceCode,
           call.name.pos,
           "Missing argument " + param
         );
@@ -383,7 +379,7 @@ export function calculate(
     } else if (exp.type == "functionCall") {
       if (!(exp.name.name in builtinFunctions)) {
         throw new CompileError(
-          data.sourceCode,
+          sourceCode,
           exp.name.pos,
           "Unknown function " + exp.name.name
         );
@@ -444,11 +440,7 @@ export function calculate(
       }
 
       errors.push(
-        new CompileError(
-          data.sourceCode,
-          name.pos,
-          "Unknown variable " + name.name
-        )
+        new CompileError(sourceCode, name.pos, "Unknown variable " + name.name)
       );
       return new DualComplex(
         new DualReal(
@@ -506,40 +498,38 @@ export function calculate(
       console.log("Solution found");
 
       // apply the solution
-      updateProject((p) => {
-        let src = p.data.sourceCode;
-        [...system.variables]
-          .reverse()
-          .filter((x) => !x.locked)
-          .forEach((v) => {
-            const variableValue = variables[v.name.name];
-            let imagValue = variableValue.imag.value;
-            if (Math.abs(imagValue) < 1e-12) {
-              imagValue = 0;
-            }
+      let src = sourceCode;
+      [...system.variables]
+        .reverse()
+        .filter((x) => !x.locked)
+        .forEach((v) => {
+          const variableValue = variables[v.name.name];
+          let imagValue = variableValue.imag.value;
+          if (Math.abs(imagValue) < 1e-12) {
+            imagValue = 0;
+          }
 
-            if (v.value.imag !== undefined) {
-              src =
-                src.substring(0, v.value.imagStart.pos) +
-                imagValue / siPrefixMap[v.value.siPrefix] +
-                src.substring(v.value.imagStart.pos + v.value.imagLength);
-            } else if (imagValue !== 0) {
-              src =
-                src.substring(0, v.value.realStart.pos + v.value.realLength) +
-                ":" +
-                imagValue / siPrefixMap[v.value.siPrefix] +
-                src.substring(v.value.realStart.pos + v.value.realLength);
-            }
+          if (v.value.imag !== undefined) {
             src =
-              src.substring(0, v.value.realStart.pos) +
-              variableValue.real.value / siPrefixMap[v.value.siPrefix] +
+              src.substring(0, v.value.imagStart.pos) +
+              imagValue / siPrefixMap[v.value.siPrefix] +
+              src.substring(v.value.imagStart.pos + v.value.imagLength);
+          } else if (imagValue !== 0) {
+            src =
+              src.substring(0, v.value.realStart.pos + v.value.realLength) +
+              ":" +
+              imagValue / siPrefixMap[v.value.siPrefix] +
               src.substring(v.value.realStart.pos + v.value.realLength);
-          });
-        return {
-          sourceCode: src,
-        };
-      });
-      return "Solution found. Error: " + e;
+          }
+          src =
+            src.substring(0, v.value.realStart.pos) +
+            variableValue.real.value / siPrefixMap[v.value.siPrefix] +
+            src.substring(v.value.realStart.pos + v.value.realLength);
+        });
+      return {
+        updatedSourceCode: src,
+        output: "Solution found. Error: " + e,
+      };
     }
 
     let d = solve(A, B);
@@ -566,7 +556,10 @@ export function calculate(
     }
 
     if (alpha < 0.1 || n > 100) {
-      return "Solver failed to converge. Error: " + e;
+      return {
+        updatedSourceCode: sourceCode,
+        output: "Solver failed to converge. Error: " + e,
+      };
     }
 
     lastError = e;

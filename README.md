@@ -60,7 +60,7 @@ Want to know how far you fall in 50ms?
 
 Notice the `c` prefix for `s` and the `m` prefix for the time. You can use the following prefixes: `"" | "T" | "G" | "M" | "k" | "h" | "%" | "d" | "c" | "m" | "u" | "n" | "p"`
 
-# Declaring Equations
+## Declaring Equations
 
 Solve the following exercise: A Body is uniformly accelerated. After 2.2s it traveled 24m, after 3s it traveled 40m. What is the initial speed $v_0$ and the acceleration $a$?
 

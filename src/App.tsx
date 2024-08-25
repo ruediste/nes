@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { checkType, debounce } from "./utils";
+import { debounce } from "./utils";
 
 import Split from "@uiw/react-split";
 import Prism, { highlight } from "prismjs";
@@ -43,53 +43,23 @@ export const siPrefixMap: { [key in SiPrefix]: number } = Object.fromEntries(
   siPrefixes.map((x) => [x.prefix, x.factor])
 ) as any;
 
-interface ProjectSerialized {
-  sourceCode: string;
-}
-
-export interface ProjectData extends ProjectSerialized {}
-
-export class Project {
-  constructor(public data: ProjectData) {}
-  static fromSerialized(data: ProjectSerialized) {
-    return new Project({
-      ...data,
-    });
-  }
-
-  public update(data: Partial<ProjectData>) {
-    return new Project({ ...this.data, ...data });
-  }
-}
-
-function serializeProject(project: Project) {
-  return JSON.stringify(
-    checkType<ProjectSerialized>({
-      sourceCode: project.data.sourceCode,
-    })
-  );
-}
-
-const debouncedSave = debounce((project: Project) => {
-  localStorage.setItem("project1", serializeProject(project));
+const debouncedSave = debounce((sourceCode: string) => {
+  localStorage.setItem("sourceCode", sourceCode);
 }, 500);
 
-function DownloadButton(props: { project: Project }) {
+function DownloadButton(props: { sourceCode: string }) {
   return (
     <button
       type="button"
       className="btn btn-secondary"
       onClick={() => {
-        const data = serializeProject(props.project);
-        if (data) {
-          const blob = new Blob([data], { type: "application/json" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "project.json";
-          a.click();
-          URL.revokeObjectURL(url);
-        }
+        const blob = new Blob([props.sourceCode], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "nes-code.txt";
+        a.click();
+        URL.revokeObjectURL(url);
       }}
     >
       Download
@@ -97,7 +67,7 @@ function DownloadButton(props: { project: Project }) {
   );
 }
 
-function UploadButton(props: { onUpload: (project: Project) => void }) {
+function UploadButton(props: { onUpload: (sourceCode: string) => void }) {
   return (
     <div className="mb-3">
       <label className="form-label">Import Project</label>
@@ -112,7 +82,7 @@ function UploadButton(props: { onUpload: (project: Project) => void }) {
             reader.onload = (e1) => {
               const data = e1.target?.result;
               if (typeof data === "string") {
-                props.onUpload(Project.fromSerialized(JSON.parse(data)));
+                props.onUpload(data);
               }
               input.value = "";
               toast("Project loaded");
@@ -126,27 +96,21 @@ function UploadButton(props: { onUpload: (project: Project) => void }) {
 }
 
 function App() {
-  const [project, setProject] = useState<Project>(() => {
-    const stored = localStorage.getItem("project1");
-
-    if (stored) {
-      return Project.fromSerialized(JSON.parse(stored) as ProjectSerialized);
-    } else {
-      return Project.fromSerialized({
-        sourceCode: "",
-      });
-    }
-  });
+  const [sourceCode, setSourceCode] = useState<string>(
+    () => localStorage.getItem("sourceCode") ?? ""
+  );
 
   const [output, setOutput] = useState("");
 
   useEffect(() => {
-    debouncedSave(project);
-  }, [project]);
+    debouncedSave(sourceCode);
+  }, [sourceCode]);
 
   const performCalculation = useCallback(() => {
     try {
-      setOutput(calculate(project, (fn) => setProject((p) => p.update(fn(p)))));
+      const result = calculate(sourceCode);
+      setSourceCode(result.updatedSourceCode);
+      setOutput(result.output);
     } catch (e) {
       if (e instanceof CompileError) {
         setOutput(e.message);
@@ -159,7 +123,7 @@ function App() {
         console.error(e);
       }
     }
-  }, [project]);
+  }, [sourceCode]);
 
   return (
     <div
@@ -172,10 +136,8 @@ function App() {
     >
       <Split style={{ minHeight: "200px", flexGrow: 1 }}>
         <Editor
-          value={project.data.sourceCode}
-          onValueChange={(code) =>
-            setProject((p) => p.update({ sourceCode: code }))
-          }
+          value={sourceCode}
+          onValueChange={(code) => setSourceCode(code)}
           highlight={(code) =>
             highlightWithLineNumbers(code, Prism.languages.nes)
           }
@@ -213,8 +175,8 @@ function App() {
           alignItems: "center",
         }}
       >
-        <DownloadButton project={project} />
-        <UploadButton onUpload={setProject} />
+        <DownloadButton sourceCode={sourceCode} />
+        <UploadButton onUpload={setSourceCode} />
       </div>
       <ToastContainer />
     </div>

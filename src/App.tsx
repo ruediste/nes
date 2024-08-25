@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { checkType, debounce } from "./utils";
 
@@ -135,7 +135,6 @@ function App() {
   });
 
   const [output, setOutput] = useState("");
-  const id = useId();
 
   useEffect(() => {
     debouncedSave(project);

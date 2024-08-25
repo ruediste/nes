@@ -10,6 +10,7 @@ NES is a numerical equation solver geared towards electronic circuit design and 
 ## Simple Example
 
 Let's take the uniform acceleration as an example:
+
 $$s(t)=s_0+v_0t+\frac{1}{2}at^2$$
 
 We want to know the distance $s$ after 1 second. Translated to the NES language:
@@ -40,7 +41,7 @@ Hit calculate and get
 Another question: I want to go 6m in 0.9s. What needs to be the initial speed? Solution
 
     lvar s=6[m];
-    lvar s0=0 k[Hz];
+    lvar s0=0 [m/s];
     lvar t=0.9 [s];
     var v0=2.252166666666666 [m/s];
     lvar a=9.81 [m/s2];
@@ -51,12 +52,13 @@ Another question: I want to go 6m in 0.9s. What needs to be the initial speed? S
 
 Want to know how far you fall in 50ms?
 
-    var s=12 c[m];
-    lvar t=2.3 [s];
-    lvar v0=3.51 [m/s];
-    lvar a=6.28 [m/s2];
+    var s=1.2262500000000003 c[m];
+    lvar s0=0 [m/s];
+    lvar t=50 m[s];
+    lvar v0=0 [m/s];
+    lvar a=9.81 [m/s2];
 
-    s=v0*t+0.5*a*t*t;
+    s=s0+v0*t+0.5*a*t*t;
 
 Notice the `c` prefix for `s` and the `m` prefix for the time. You can use the following prefixes: `"" | "T" | "G" | "M" | "k" | "h" | "%" | "d" | "c" | "m" | "u" | "n" | "p"`
 

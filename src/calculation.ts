@@ -336,12 +336,20 @@ export function calculate(
     );
     Object.keys(namedArgs).forEach((arg) => {
       if (!namedParameterSet.has(arg)) {
-        throw "Unknown parameter " + arg;
+        throw new CompileError(
+          data.sourceCode,
+          call.name.pos,
+          "Unknown parameter " + arg
+        );
       }
     });
     namedParameterSet.forEach((param) => {
-      if (namedArgs.hasOwnProperty(param)) {
-        throw "Missing argument " + param;
+      if (!namedArgs.hasOwnProperty(param)) {
+        throw new CompileError(
+          data.sourceCode,
+          call.name.pos,
+          "Missing argument " + param
+        );
       }
     });
 

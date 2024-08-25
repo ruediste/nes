@@ -16,8 +16,11 @@ export const siPrefixes = [
   { prefix: "G", factor: 1e9 },
   { prefix: "M", factor: 1e6 },
   { prefix: "k", factor: 1e3 },
+  { prefix: "h", factor: 100 },
   { prefix: "", factor: 1 },
   { prefix: "%", factor: 0.01 },
+  { prefix: "d", factor: 1e-1 },
+  { prefix: "c", factor: 1e-2 },
   { prefix: "m", factor: 1e-3 },
   { prefix: "u", factor: 1e-6 },
   { prefix: "n", factor: 1e-9 },
@@ -25,12 +28,13 @@ export const siPrefixes = [
 ] as const;
 
 Prism.languages["nes"] = {
-  keyword: [/\bvar\b/, /\blvar\b/],
+  keyword: [/\bvar\b/, /\blvar\b/, /\beq\b/],
   number: /-?\d+(\.\d+)?(e-?\d+)?/,
   comment: { pattern: /\/\/.*/, greedy: true },
   operator: /[\-+*\/=]/,
   punctuation: /[];:\(\)]/,
   function: { pattern: /\b[a-zA-Z_][a-zA-Z0-9]*\b(?=\()/, greedy: true },
+  selector: { pattern: /\b[a-zA-Z_][a-zA-Z0-9]*\b/, greedy: true },
 };
 
 export type SiPrefix = (typeof siPrefixes)[number]["prefix"];

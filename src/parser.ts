@@ -276,6 +276,7 @@ export type AstNumericValue = {
   realStart: InputPos;
   realLength: number;
   siPrefix: SiPrefix;
+  unit: string | undefined;
 } & (
   | { imag: undefined; imagStart: undefined; imagLength: undefined }
   | { imag: number; imagStart: InputPos; imagLength: number }
@@ -566,7 +567,7 @@ export class Grammar {
       const [imag, imagStart, imagLength] = this.number();
       return [imag, imagStart, imagLength] as const;
     });
-    const siPrefix =
+    let siPrefix =
       this.parser.optional(
         () =>
           this.parser.consumeChar([
@@ -576,14 +577,28 @@ export class Grammar {
       ) ?? "";
 
     // unit
-    this.parser.zeroOrMore(() => this.parser.consumeChar("a-zA-Z0-9"));
+    let unit = this.parser.optional(() => {
+      this.parser.consumeString("[");
+      this.whitespaceOpt();
+      var result = this.parser
+        .zeroOrMore(() => this.parser.consumeChar("a-zA-Z0-9/"))
+        .join("");
+      this.parser.consumeString("]");
+      return result;
+    });
     this.whitespaceOpt();
+
+    if (unit === "" && siPrefix === "m") {
+      unit = "m";
+      siPrefix = "";
+    }
 
     return {
       real: real[0],
       realStart: real[1],
       realLength: real[2],
       siPrefix,
+      unit,
       ...(imag === undefined
         ? { imag: undefined, imagStart: undefined, imagLength: undefined }
         : { imag: imag[0], imagStart: imag[1], imagLength: imag[2] }),

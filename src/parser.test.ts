@@ -81,7 +81,9 @@ eq cap(I,t, C, dU) {
 });
 
 test("variable declaration", () => {
-  const decl = new Grammar("var f=10 kHz; // Frequency").variableDeclaration();
+  const decl = new Grammar(
+    "var f=10 k[Hz]; // Frequency"
+  ).variableDeclaration();
   expect(decl.name.name).toBe("f");
   expect(decl.value.siPrefix).toBe("k");
   expect(decl.value.realStart.pos).toBe(6);
@@ -89,11 +91,11 @@ test("variable declaration", () => {
 });
 
 test("comment", () => {
-  new Grammar("var f=10 kHz; // Frequency").system();
+  new Grammar("var f=10 k[Hz]; // Frequency").system();
 });
 
 test("numericValue", () => {
-  let value = new Grammar("10 kHz").numericValue();
+  let value = new Grammar("10 k[Hz]").numericValue();
   expect(value.real).toBe(10);
   expect(value.siPrefix).toBe("k");
 
@@ -115,6 +117,13 @@ test("numericValue", () => {
   expect(value.realLength).toBe(5);
   expect(value.imagStart!.pos).toBe(6);
   expect(value.imagLength).toBe(6);
+});
+
+test("meters take precedence over milli", () => {
+  let value = new Grammar("10[m]").numericValue();
+  expect(value.real).toBe(10);
+  expect(value.siPrefix).toBe("");
+  expect(value.unit).toBe("m");
 });
 
 test("call", () => {

@@ -146,3 +146,7 @@ test("number", () => {
   expect(new Grammar("1e-1").number()[0]).toBe(0.1);
   expect(new Grammar("1e+1").number()[0]).toBe(10);
 });
+
+test("equation declaration", () => {
+  new Grammar("eq ind(U,T,dI,L){U*T=dI*L;}").equationDefinition();
+});

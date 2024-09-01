@@ -9,7 +9,7 @@ import {
   CompileError,
   Grammar,
 } from "./parser";
-import { createRange } from "./utils";
+import { createRange, formatToPrecision } from "./utils";
 
 class DualReal {
   constructor(public value: number, public derivatives: number[]) {}
@@ -497,6 +497,7 @@ export function calculate(sourceCode: string): {
     if (e < 1e-12) {
       console.log("Solution found");
 
+      const precision = 8;
       // apply the solution
       let src = sourceCode;
       [...system.variables]
@@ -512,18 +513,27 @@ export function calculate(sourceCode: string): {
           if (v.value.imag !== undefined) {
             src =
               src.substring(0, v.value.imagStart.pos) +
-              imagValue / siPrefixMap[v.value.siPrefix] +
+              formatToPrecision(
+                imagValue / siPrefixMap[v.value.siPrefix],
+                precision
+              ) +
               src.substring(v.value.imagStart.pos + v.value.imagLength);
           } else if (imagValue !== 0) {
             src =
               src.substring(0, v.value.realStart.pos + v.value.realLength) +
               ":" +
-              imagValue / siPrefixMap[v.value.siPrefix] +
+              formatToPrecision(
+                imagValue / siPrefixMap[v.value.siPrefix],
+                precision
+              ) +
               src.substring(v.value.realStart.pos + v.value.realLength);
           }
           src =
             src.substring(0, v.value.realStart.pos) +
-            variableValue.real.value / siPrefixMap[v.value.siPrefix] +
+            formatToPrecision(
+              variableValue.real.value / siPrefixMap[v.value.siPrefix],
+              precision
+            ) +
             src.substring(v.value.realStart.pos + v.value.realLength);
         });
       return {

@@ -6,7 +6,7 @@ import Split from "@uiw/react-split";
 import Prism, { highlight } from "prismjs";
 import "prismjs/themes/prism.css";
 import Editor from "react-simple-code-editor";
-import { toast, ToastContainer } from "react-toastify";
+import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { calculate } from "./calculation";
 import { CompileError } from "./parser";
@@ -47,54 +47,6 @@ const debouncedSave = debounce((sourceCode: string) => {
   localStorage.setItem("sourceCode", sourceCode);
 }, 500);
 
-function DownloadButton(props: { sourceCode: string }) {
-  return (
-    <button
-      type="button"
-      className="btn btn-secondary"
-      onClick={() => {
-        const blob = new Blob([props.sourceCode], { type: "text/plain" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "nes-code.txt";
-        a.click();
-        URL.revokeObjectURL(url);
-      }}
-    >
-      Download
-    </button>
-  );
-}
-
-function UploadButton(props: { onUpload: (sourceCode: string) => void }) {
-  return (
-    <div className="mb-3">
-      <label className="form-label">Import Project</label>
-      <input
-        type="file"
-        className="form-control"
-        onChange={(e) => {
-          const input = e.target;
-          const file = e.target.files?.[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (e1) => {
-              const data = e1.target?.result;
-              if (typeof data === "string") {
-                props.onUpload(data);
-              }
-              input.value = "";
-              toast("Project loaded");
-            };
-            reader.readAsText(file);
-          }
-        }}
-      />
-    </div>
-  );
-}
-
 function App() {
   const [sourceCode, setSourceCode] = useState<string>(
     () => localStorage.getItem("sourceCode") ?? ""
@@ -128,29 +80,30 @@ function App() {
   return (
     <div
       style={{
-        margin: "8px",
-        minHeight: "100vh",
+        padding: "8px",
+        height: "100vh",
         display: "flex",
         flexDirection: "column",
       }}
     >
       <Split style={{ minHeight: "200px", flexGrow: 1 }}>
-        <Editor
-          value={sourceCode}
-          onValueChange={(code) => setSourceCode(code)}
-          highlight={(code) =>
-            highlightWithLineNumbers(code, Prism.languages.nes)
-          }
-          padding={10}
-          textareaId="codeArea"
-          className="editor"
-          style={{
-            width: "75%",
-            fontFamily: '"Fira code", "Fira Mono", monospace',
-            fontSize: 18,
-            outline: 0,
-          }}
-        />
+        <div style={{ overflow: "auto", width: "75%" }}>
+          <Editor
+            value={sourceCode}
+            onValueChange={(code) => setSourceCode(code)}
+            highlight={(code) =>
+              highlightWithLineNumbers(code, Prism.languages.nes)
+            }
+            padding={10}
+            textareaId="codeArea"
+            className="editor"
+            style={{
+              fontFamily: '"Fira code", "Fira Mono", monospace',
+              fontSize: 18,
+              outline: 0,
+            }}
+          />
+        </div>
         <div style={{ width: "25%" }}>
           <pre>{output}</pre>
         </div>
@@ -175,8 +128,8 @@ function App() {
           alignItems: "center",
         }}
       >
-        <DownloadButton sourceCode={sourceCode} />
-        <UploadButton onUpload={setSourceCode} />
+        {/* <DownloadButton sourceCode={sourceCode} />
+        <UploadButton onUpload={setSourceCode} /> */}
       </div>
       <ToastContainer />
     </div>

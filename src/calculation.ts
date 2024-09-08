@@ -538,7 +538,7 @@ export function calculate(sourceCode: string): {
         });
       return {
         updatedSourceCode: src,
-        output: "Solution found. Error: " + e,
+        output: "Solution found. Error: " + formatToPrecision(e, 3),
       };
     }
 

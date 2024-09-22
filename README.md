@@ -27,7 +27,7 @@ We want to know the distance $s$ after 1 second. Translated to the NES language:
 
 Open NES in your browser, paste the code into the editor and hit calculate. The result is written back to the editor and you get
 
-    var s=4.904999999999745[m];
+    var s=4.905[m];
 
 Thus far, nothing we could not easily do with a calculator. But how long does it take for 6 meters? Just change
 
@@ -36,14 +36,14 @@ Thus far, nothing we could not easily do with a calculator. But how long does it
 
 Hit calculate and get
 
-    var t=1.106002527218662[s];
+    var t=1.1060025[s];
 
 Another question: I want to go 6m in 0.9s. What needs to be the initial speed? Solution
 
     lvar s=6[m];
     lvar s0=0 [m/s];
     lvar t=0.9 [s];
-    var v0=2.252166666666666 [m/s];
+    var v0=2.2521667 [m/s];
     lvar a=9.81 [m/s2];
 
     s=s0+v0*t+0.5*a*t*t;
@@ -52,7 +52,7 @@ Another question: I want to go 6m in 0.9s. What needs to be the initial speed? S
 
 Want to know how far you fall in 50ms?
 
-    var s=1.2262500000000003 c[m];
+    var s=1.22625 c[m];
     lvar s0=0 [m/s];
     lvar t=50 m[s];
     lvar v0=0 [m/s];
@@ -68,8 +68,8 @@ Solve the following exercise: A Body is uniformly accelerated. After 2.2s it tra
 
 Solution:
 
-    var v0=4.242424242424237 [m/s];
-    var a=6.060606060606065 [m/s2];
+    var v0=4.2424242 [m/s];
+    var a=6.0606061 [m/s2];
 
     accel(2.2[s], 24[m]);
     accel(3[s], 40[m]);
@@ -81,3 +81,7 @@ Solution:
 You can also use named arguments:
 
     accel(s:24[m], t:2.2[s]);
+
+## Other Models
+
+- [Boost Converter](doc/boostConverter/boostConverter.md)
